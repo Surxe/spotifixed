@@ -81,7 +81,7 @@ initSettingsPane([
   initPlaybackSettings({ getJson, postJson }),
   initSwitches({
     getJson, postJson, noteId: "playback-note",
-    ids: { mono: "mono" },
+    ids: { mono: "mono", loop: "loop" },
     changed: () => {},
   }),
   initSwitches({

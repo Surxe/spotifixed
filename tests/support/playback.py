@@ -150,6 +150,9 @@ class FakePlayer:
     def set_mono(self, on: bool) -> None:
         self._record("set_mono", on)
 
+    def set_loop(self, on: bool) -> None:
+        self._record("set_loop", on)
+
     def set_offset(self, track_id: str, offset_ms: int) -> None:
         self._record("set_offset", track_id, offset_ms)
         if self.queue.set_offset(track_id, offset_ms):

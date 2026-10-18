@@ -128,6 +128,21 @@ def test_play_after_the_queue_ended_starts_it_again(make_player, tones):
     assert again.queue_index == 0
 
 
+def test_a_looping_queue_starts_over_after_its_last_track(make_player, tones):
+    player, log = make_player()
+    player.set_loop(True)
+    assert player._command("get_property", "loop-playlist") == "inf"
+    player.load_queue(queue_of(tones, [1.5, 1.5]))
+    second = log.wait_for(playing("T1"))
+    again = log.wait_for(playing("T0"), after=second.version)
+    assert again.queue_index == 0
+    assert "ended" not in log.statuses()
+
+    player.set_loop(False)
+    assert player._command("get_property", "loop-playlist") is False
+    log.wait_for(lambda s: s.status is PlayerStatus.ENDED, after=again.version)
+
+
 def test_pause_freezes_the_position_and_resume_continues(make_player, tones):
     player, log = make_player()
     player.load_queue(queue_of(tones, [5]))

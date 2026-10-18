@@ -504,6 +504,20 @@ def test_the_mono_switch_is_off_to_begin_with_and_reaches_the_player(daemon, tmp
     assert ("set_mono", True) in daemon.player.calls
 
 
+def test_the_repeat_switch_is_off_to_begin_with_and_reaches_the_player(daemon, tmp_path):
+    results = drive(daemon, tmp_path, [
+        *OPEN,
+        {"wait": "t.el('playback-settings').textContent.includes('Repeat playlist')"},
+        {"eval": "t.el('loop').checked"},
+        {"eval": "t.el('loop').click()"},
+        {"wait": "t.el('loop').checked"},
+        {"eval": "t.pause(300)"},
+    ])[len(OPEN):]  # fmt: skip
+    assert results[1] is False
+    assert daemon.session.document()["settings"]["loop"] is True
+    assert ("set_loop", True) in daemon.player.calls
+
+
 def test_the_track_switches_take_tracks_out_of_the_list_and_put_them_back(daemon, tmp_path):
     rows = "[...document.querySelectorAll('#tracks li')].map((li) => li.dataset.id)"
     shot = tmp_path / "tracks.png"

@@ -153,7 +153,7 @@ playlist for what `sync` does about it. Songs with vocals measure about 0.4 and 
 |------|-------|
 | `cache/` | Everything fetched: track lists, audio, lyrics, covers. Safe to delete; `sync` rebuilds it. |
 | `state/` | What you changed by hand: lyric offsets, audio pins, and overlay settings set from the page (with whether the overlay is switched on). Not rebuilt. |
-| `state/session.json` | Each shuffled playlist's order, and what the daemon resumes: the playlist, song, position and volume, with the settings made on the page (fade in, mono, which tracks are included). Rewritten as playback changes; deleting it just starts fresh. |
+| `state/session.json` | Each shuffled playlist's order, and what the daemon resumes: the playlist, song, position and volume, with the settings made on the page (fade in, mono, repeat, which tracks are included). Rewritten as playback changes; deleting it just starts fresh. |
 
 Both are gitignored and sit in the repo by default; `SPOTIFIXED_CACHE_DIR` and
 `SPOTIFIXED_STATE_DIR` move them. Files get ordinary permissions, whatever your

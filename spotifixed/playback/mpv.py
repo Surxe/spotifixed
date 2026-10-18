@@ -110,6 +110,8 @@ class MpvPlayer:
         self._fading: tuple[str | None, float, float] | None = None
         # Whether the sound is mixed to mono. An mpv started later is started with it.
         self._mono = False
+        # Whether the playlist starts over after its last entry. Kept the same way.
+        self._loop = False
         # The volume last set or reported. An mpv started later is started at it, so a
         # player that had to be restarted does not come back at mpv's default of 100.
         self._volume: float | None = None
@@ -146,6 +148,8 @@ class MpvPlayer:
             args.append(f"--volume={self._volume:g}")
         if self._mono:
             args.append(f"--af={_MONO_FILTER}")
+        if self._loop:
+            args.append("--loop-playlist=inf")
         if self._mpris_plugin:
             # An explicit --script still loads with --load-scripts=no; that flag only
             # stops mpv scanning its script directories.
@@ -425,6 +429,16 @@ class MpvPlayer:
             except MpvCommandError as exc:
                 self._mono = False
                 raise PlaybackError(f"mpv could not mix to mono: {exc}") from exc
+
+    def set_loop(self, on: bool) -> None:
+        # A global option, so a playlist loaded later with "loadlist ... replace" keeps it.
+        with self._lock:
+            self._loop = bool(on)
+            try:
+                self._command("set_property", "loop-playlist", "inf" if self._loop else "no")
+            except MpvCommandError as exc:
+                self._loop = False
+                raise PlaybackError(f"mpv could not repeat the playlist: {exc}") from exc
 
     def set_offset(self, track_id: str, offset_ms: int) -> None:
         if self._reducer.queue.set_offset(track_id, offset_ms):

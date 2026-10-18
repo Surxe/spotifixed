@@ -73,6 +73,13 @@ class Player(Protocol):
         """
         ...
 
+    def set_loop(self, on: bool) -> None:
+        """Start the queue again from its first entry once the last one ends, or stop there.
+
+        It holds until set again, across queues loaded later.
+        """
+        ...
+
     def set_offset(self, track_id: str, offset_ms: int) -> None:
         """Tell the player a track's lyric offset changed, so the next snapshot carries it."""
         ...
