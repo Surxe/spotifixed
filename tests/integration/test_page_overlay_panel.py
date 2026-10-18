@@ -188,6 +188,36 @@ def test_a_change_made_elsewhere_and_the_overlay_count_appear_without_reloading(
     assert drive(daemon, tmp_path, steps)[-1] == "overlay running"
 
 
+def test_the_monitor_is_picked_from_the_monitors_the_overlay_can_see(daemon, tmp_path):
+    daemon.overlay.attach()
+    daemon.overlay.set_monitors([
+        {"connector": "DP-1", "description": "Dell Inc. DELL U2720Q"},
+        {"connector": "HDMI-A-1", "description": ""},
+    ])  # fmt: skip
+    options = "[...t.field('monitor').options].map((o) => o.textContent)"
+    steps = [
+        *OPEN,
+        {"eval": options},
+        {"eval": "t.type(t.field('monitor'), 'DP-1')"},
+        {"wait": "t.overridden('monitor')[0]"},
+        # The overlay goes away: the choice stays, and the list says why it is short.
+        {"eval": "fetch('/api/v1/overlay/monitors', {method: 'POST', "
+                 "headers: {'Content-Type': 'application/json'}, body: '{\"monitors\": []}'})"},
+        {"wait": f"{options}.length === 3"},
+        {"eval": f"[t.values('monitor')[0], {options}]"},
+    ]  # fmt: skip
+    results = drive(daemon, tmp_path, steps)[len(OPEN) :]
+    assert results[0] == [
+        "Automatic (the screen in use)", "Dell Inc. DELL U2720Q (DP-1)", "HDMI-A-1",
+    ]  # fmt: skip
+    assert daemon.overlay.snapshot()["overrides"] == {"monitor": "DP-1"}
+    assert results[-1] == [
+        "DP-1",
+        ["Automatic (the screen in use)", "DP-1",
+         "Your monitors are listed while the overlay is running"],
+    ]  # fmt: skip
+
+
 def test_the_sample_line_is_asked_for_kept_alive_and_withdrawn(daemon, tmp_path):
     seen: list[int] = []
     daemon.overlay.subscribe(lambda: seen.append(daemon.overlay.snapshot()["preview_until_ms"]))

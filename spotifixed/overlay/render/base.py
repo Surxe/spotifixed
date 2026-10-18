@@ -110,6 +110,14 @@ class Renderer(Protocol):
         """End :meth:`run`. Safe from any thread."""
         ...
 
+    def monitors(self) -> list[dict[str, str]]:
+        """The monitors on this display as ``{connector, description}``. Safe from any thread."""
+        ...
+
+    def on_monitors_changed(self, listener: Callable[[], None]) -> None:
+        """Call ``listener`` (on the renderer's thread) when a monitor comes or goes."""
+        ...
+
     def snapshot(self, view: OverlayView, path: Path) -> None:
         """Draw ``view`` once, save it as a PNG at ``path``, and return."""
         ...

@@ -620,6 +620,9 @@ def test_the_overlay_moves_between_monitors_and_can_be_handed_back(
     overlay = LiveOverlay(store, tmp_path, monkeypatch, extra_env=TWO_SCREENS)
     try:
         overlay.start()
+        # The page lists what the overlay can see.
+        wait_until(lambda: len(overlay.overlay.snapshot()["monitors"]) == 2)
+        reported = overlay.overlay.snapshot()["monitors"]
         overlay.overlay.preview(30)
         time.sleep(0.5)
         chosen = overlay.window()
@@ -643,6 +646,7 @@ def test_the_overlay_moves_between_monitors_and_can_be_handed_back(
         overlay.finish()
     finally:
         overlay.close()
+    assert [monitor["connector"] for monitor in reported] == ["Virtual-0", "Virtual-1"]
     assert chosen is not None and 0 <= chosen[0] < SCREEN[0]
     assert second is not None and SCREEN[0] <= second[0] < 2 * SCREEN[0]
     assert (second[0] - SCREEN[0], *second[1:]) == chosen  # the same place, one screen over

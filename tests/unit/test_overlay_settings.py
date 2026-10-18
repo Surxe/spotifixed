@@ -130,7 +130,7 @@ def test_the_document_carries_configured_values_overrides_and_the_result(default
     assert (first["clients"], first["preview_until_ms"]) == (0, 0)
     assert set(first) == {
         "version", "defaults", "overrides", "settings", "preview_until_ms", "clients",
-        "enabled", "managed", "problem",
+        "enabled", "managed", "problem", "monitors",
     }  # fmt: skip
     assert (first["enabled"], first["managed"], first["problem"]) == (True, False, "")
 
@@ -245,6 +245,40 @@ def test_attached_overlays_are_counted(defaults):
     config.detach()
     config.detach()  # one too many must not go negative
     assert config.snapshot()["clients"] == 0
+
+
+def test_the_monitors_an_overlay_reports_are_shown_until_the_last_overlay_leaves(defaults, store):
+    config = OverlayConfig(defaults, store)
+    seen = [{"connector": "DP-1", "description": "Dell Inc. DELL U2720Q"}, {"connector": "DP-2"}]
+    config.attach()
+    version = config.version
+    assert config.set_monitors(seen)["monitors"] == [
+        {"connector": "DP-1", "description": "Dell Inc. DELL U2720Q"},
+        {"connector": "DP-2", "description": ""},
+    ]
+    assert config.version > version  # the page hears about it
+    config.set_monitors(seen)
+    assert config.version == version + 1  # the same list again is not a change
+    assert not store.overlay_json.exists()  # never stored
+    config.detach()
+    assert config.snapshot()["monitors"] == []
+
+
+@pytest.mark.parametrize(
+    "monitors",
+    [
+        None, "DP-1", [{"connector": ""}], [{"connector": "DP 1; reboot"}], ["DP-1"],
+        [{"connector": "DP-1", "description": "x" * 121}],
+        [{"connector": "DP-1", "description": "line\nbreak"}],
+        [{"connector": "DP-1", "description": 5}], [{"connector": f"DP-{i}"} for i in range(17)],
+    ],
+)  # fmt: skip
+def test_a_monitor_list_that_is_not_one_is_refused_and_changes_nothing(defaults, monitors):
+    config = OverlayConfig(defaults)
+    config.set_monitors([{"connector": "DP-1"}])
+    with pytest.raises(OverlaySettingError):
+        config.set_monitors(monitors)
+    assert config.snapshot()["monitors"] == [{"connector": "DP-1", "description": ""}]
 
 
 def test_the_switch_needs_something_following_it(defaults, store):

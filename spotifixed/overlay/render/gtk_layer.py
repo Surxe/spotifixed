@@ -17,6 +17,7 @@ from __future__ import annotations
 import ctypes
 import signal
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,8 @@ _FADE_STEP_MS = 16
 _NEXT_LINE_SCALE = 0.7
 _NEXT_LINE_OPACITY = 0.6
 _VOLUME_SCALE = 0.7
+# A monitor that has just appeared may not have its connector and description yet.
+_MONITORS_SETTLE_MS = 300
 
 _EDGES = {
     "top": LayerShell.Edge.TOP,
@@ -68,6 +71,11 @@ class GtkLayerRenderer:
         self._placement = placement
         self._style = style
         self._monitor_name = monitor
+        self._monitors_listener: Callable[[], None] | None = None
+        self._monitors_settle_id = 0
+        # Read from other threads, so only ever replaced whole, never changed in place.
+        self._monitor_list = self._list_monitors()
+        Gdk.Display.get_default().get_monitors().connect("items-changed", self._on_monitors_changed)
         self._css = Gtk.CssProvider()
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), self._css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
@@ -208,6 +216,42 @@ class GtkLayerRenderer:
             library.gtk_layer_set_monitor(hash(self._window), None)
         except (OSError, AttributeError) as exc:
             print(f"spotifixed: could not release the monitor: {exc}", file=sys.stderr)
+
+    def monitors(self) -> list[dict[str, str]]:
+        return [dict(monitor) for monitor in self._monitor_list]
+
+    def on_monitors_changed(self, listener: Callable[[], None]) -> None:
+        self._monitors_listener = listener
+
+    @staticmethod
+    def _list_monitors() -> list[dict[str, str]]:
+        monitors = Gdk.Display.get_default().get_monitors()
+        found = []
+        for index in range(monitors.get_n_items()):
+            monitor = monitors.get_item(index)
+            connector = monitor.get_connector()
+            if not connector:
+                continue  # not yet announced; the settle timer looks again
+            description = monitor.get_description() or " ".join(
+                part for part in (monitor.get_manufacturer(), monitor.get_model()) if part
+            )
+            found.append({"connector": connector, "description": description})
+        return found
+
+    def _on_monitors_changed(self, *_args: object) -> None:
+        if self._monitors_settle_id:
+            GLib.source_remove(self._monitors_settle_id)
+        self._monitors_settle_id = GLib.timeout_add(_MONITORS_SETTLE_MS, self._monitors_settled)
+
+    def _monitors_settled(self) -> bool:
+        self._monitors_settle_id = 0
+        self._monitor_list = self._list_monitors()
+        # A chosen monitor that went away hands the overlay to the compositor; one that
+        # came back takes it again.
+        self._apply_placement()
+        if self._monitors_listener is not None:
+            self._monitors_listener()
+        return GLib.SOURCE_REMOVE
 
     @staticmethod
     def monitor_names() -> list[str]:

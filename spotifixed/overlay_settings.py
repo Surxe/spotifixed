@@ -30,6 +30,8 @@ _COLOR = re.compile(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|[a-zA-Z]
 # and is stored and handed to the toolkit; nothing a real font name needs is left out.
 _FONT = re.compile(r"[\w][\w ,.\-]{0,79}")
 _MONITOR = re.compile(r"[A-Za-z0-9_.:\-]{0,40}")
+# A monitor as the overlay reports one: the same characters, but never empty.
+MONITOR_CONNECTOR = re.compile(r"[A-Za-z0-9_.:\-]{1,40}")
 
 
 class OverlaySettingError(ValueError):

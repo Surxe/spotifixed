@@ -226,6 +226,28 @@ def test_a_restarted_daemon_sends_its_settings_again_and_forgets_the_overlay_it_
     wait_until(lambda: harness.documents and harness.documents[-1]["clients"] == 1)
 
 
+def test_the_monitors_are_reported_on_connecting_and_when_they_change(harness):
+    seen = [{"connector": "DP-1", "description": "Dell Inc. DELL U2720Q"}]
+    harness.client = DaemonClient(
+        f"http://127.0.0.1:{harness.port}", harness.model, on_change=harness._wake,
+        on_overlay=harness.documents.append, monitors=lambda: list(seen),
+        reconnect_s=(0.05, 0.2),
+    )  # fmt: skip
+    harness.start_daemon()
+    harness.client.start()
+    wait_until(lambda: harness.documents and harness.documents[-1]["monitors"] == seen)
+    assert harness.documents[-1]["clients"] == 1
+
+    seen.append({"connector": "HDMI-A-1", "description": ""})
+    harness.client.report_monitors()
+    wait_until(lambda: len(harness.documents[-1]["monitors"]) == 2)
+
+    # Lost when the overlay goes, and reported again when it reconnects.
+    harness.stop_daemon()
+    harness.start_daemon()
+    wait_until(lambda: harness.daemon.overlay.snapshot()["monitors"] == seen)
+
+
 def test_a_client_without_a_settings_handler_still_follows_playback(harness):
     client = DaemonClient(
         f"http://127.0.0.1:{harness.port}", harness.model, on_change=harness._wake,

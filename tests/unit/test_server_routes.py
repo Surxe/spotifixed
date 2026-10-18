@@ -532,6 +532,16 @@ def test_the_overlay_is_switched_on_and_off_only_where_something_follows_the_swi
         assert post(routes, "/overlay/enabled", bad)[0].status == 400
 
 
+def test_the_overlay_reports_its_monitors_for_the_page(routes):
+    seen = [{"connector": "DP-1", "description": "Dell Inc. DELL U2720Q"}]
+    response, body = post(routes, "/overlay/monitors", {"monitors": seen})
+    assert response.status == 200 and body["monitors"] == seen
+    assert get(routes, "/overlay")[1]["monitors"] == seen
+    response, answer = post(routes, "/overlay/monitors", {"monitors": [{"connector": "../x"}]})
+    assert response.status == 400 and "output connector" in answer["error"]
+    assert post(routes, "/overlay/monitors", {})[0].status == 400
+
+
 def test_overlay_endpoints_refuse_other_methods_and_report_a_failed_save(
     routes, store, monkeypatch
 ):

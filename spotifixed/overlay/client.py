@@ -3,7 +3,9 @@
 One thread. It connects to the event stream, feeds each playback snapshot to the model,
 and when the model says a track's lines are missing it fetches them over the REST API
 before reading on. The same stream carries the overlay's own settings as ``overlay``
-events, which are handed to ``on_overlay`` as they arrive. If the daemon is not
+events, which are handed to ``on_overlay`` as they arrive. Each time it connects, and
+whenever :meth:`DaemonClient.report_monitors` is called, it tells the daemon which
+monitors the display has, so the page can offer them by name. If the daemon is not
 running, or goes away, the model is told it is disconnected (which hides the overlay)
 and the thread keeps retrying with a growing pause between attempts.
 """
@@ -24,6 +26,7 @@ from ..models import LyricLine, PlaybackState
 from .presenter import OverlayModel
 
 EVENTS_PATH = "/api/v1/events"
+MONITORS_PATH = "/api/v1/overlay/monitors"
 # Tells the daemon this stream is an overlay, so the page can say whether one is running.
 CLIENT_HEADER = {"X-Spotifixed-Client": "overlay"}
 # The daemon sends a keepalive comment every 15 s; silence much longer than that means
@@ -39,6 +42,7 @@ class DaemonClient:
         *,
         on_change: Callable[[], None],
         on_overlay: Callable[[dict[str, Any]], None] | None = None,
+        monitors: Callable[[], list[dict[str, str]]] | None = None,
         reconnect_s: tuple[float, float] = (0.5, 5.0),
         read_timeout_s: float = READ_TIMEOUT_S,
     ) -> None:
@@ -48,6 +52,7 @@ class DaemonClient:
         self._model = model
         self._on_change = on_change
         self._on_overlay = on_overlay
+        self._monitors = monitors
         self._reconnect_first_s, self._reconnect_max_s = reconnect_s
         self._read_timeout_s = read_timeout_s
         self._stopping = threading.Event()
@@ -96,6 +101,9 @@ class DaemonClient:
                 raise OSError(f"event stream answered HTTP {response.status}")
             self._model.set_connected(True)
             self._on_change()
+            # The daemon counts this overlay once the stream answers, and forgets what
+            # an overlay reported when the last one leaves, so report after that.
+            self.send_monitors()
 
             versions = {"state": 0, "overlay": 0}
             event = "message"
@@ -138,6 +146,28 @@ class DaemonClient:
         if wanted is not None:
             self._model.set_lyrics(wanted, self.fetch_lines(wanted))
         self._on_change()
+
+    def report_monitors(self) -> None:
+        """The display's monitors changed: tell the daemon, without blocking the caller."""
+        threading.Thread(target=self.send_monitors, name="overlay-monitors", daemon=True).start()
+
+    def send_monitors(self) -> None:
+        """Tell the daemon which monitors there are. A failure is left to the next connect."""
+        if self._monitors is None:
+            return
+        body = json.dumps({"monitors": self._monitors()}).encode()
+        connection = http.client.HTTPConnection(self._host, self._port, timeout=5.0)
+        try:
+            headers = {"Content-Type": "application/json"}
+            connection.request("POST", MONITORS_PATH, body=body, headers=headers)
+            response = connection.getresponse()
+            response.read()
+            if response.status != 200:
+                print(f"spotifixed: monitors not reported: HTTP {response.status}", file=sys.stderr)
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            connection.close()
 
     def fetch_lines(self, track_id: str) -> tuple[LyricLine, ...]:
         """The track's timed lines from the API; empty when there are none or it fails."""

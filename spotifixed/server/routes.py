@@ -135,6 +135,7 @@ class Routes:
                 ("POST", re.compile(rf"{API}/overlay/reset"), self._overlay_reset),
                 ("POST", re.compile(rf"{API}/overlay/preview"), self._overlay_preview),
                 ("POST", re.compile(rf"{API}/overlay/enabled"), self._overlay_enabled),
+                ("POST", re.compile(rf"{API}/overlay/monitors"), self._overlay_monitors),
             ]
 
     def dispatch(self, method: str, path: str, body: bytes = b"") -> Response:
@@ -296,6 +297,11 @@ class Routes:
         if not isinstance(enabled, bool):
             raise ApiError(400, "enabled must be true or false")
         return Response.json(self._overlay.set_enabled(enabled))
+
+    def _overlay_monitors(self, body: dict[str, Any]) -> Response:
+        """The overlay reports the monitors it can see: ``{"monitors": [...]}``."""
+        assert self._overlay is not None
+        return Response.json(self._overlay.set_monitors(body.get("monitors")))
 
     # ------------------------------- session ------------------------------- #
 

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
   FIELDS,
   marginSlider,
+  monitorChoices,
   parseValue,
   pickerColor,
 } from "../../spotifixed/server/static/overlay.js";
@@ -71,4 +72,26 @@ test("a margin slider cannot drag an attached overlay off the screen", () => {
   assert.deepEqual(marginSlider(x, "center"), [-1000, 1000]);
   assert.deepEqual(marginSlider(y, "center"), [-600, 600]);
   assert.deepEqual(marginSlider(y, "left"), [-600, 600]);
+});
+
+test("the monitor list offers automatic, each monitor seen, and a chosen one that is gone", () => {
+  const seen = [
+    { connector: "DP-1", description: "Dell Inc. DELL U2720Q" },
+    { connector: "HDMI-A-1", description: "" },
+  ];
+  assert.deepEqual(monitorChoices(seen, "DP-1"), [
+    { value: "", text: "Automatic (the screen in use)" },
+    { value: "DP-1", text: "Dell Inc. DELL U2720Q (DP-1)" },
+    { value: "HDMI-A-1", text: "HDMI-A-1" },
+  ]);
+  assert.deepEqual(monitorChoices(seen, "DP-2").at(-1), { value: "DP-2", text: "DP-2 (not connected)" });
+});
+
+test("with no overlay running the monitor list says why it is short", () => {
+  assert.deepEqual(monitorChoices([], ""), [
+    { value: "", text: "Automatic (the screen in use)" },
+    { value: "", text: "Your monitors are listed while the overlay is running", disabled: true },
+  ]);
+  // A chosen monitor stays selectable, without claiming it is unplugged.
+  assert.deepEqual(monitorChoices(undefined, "DP-2")[1], { value: "DP-2", text: "DP-2" });
 });
