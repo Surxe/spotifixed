@@ -451,6 +451,19 @@ def test_a_player_that_cannot_mix_to_mono_does_not_stop_the_setting_being_kept(
     assert "the mono setting is not in force" in capsys.readouterr().err
 
 
+def test_loop_is_off_until_it_is_turned_on_and_a_start_puts_it_back(store, library):
+    session, player = session_on(store, library)
+    assert session.document()["settings"]["loop"] is False
+    assert session.set_settings({"loop": True})["settings"]["loop"] is True
+    assert saved(store)["settings"] == {"loop": True}
+    session.set_settings({"mono": True})
+    assert [call for call in player.calls if call[0] == "set_loop"] == [("set_loop", True)]
+
+    session, player = session_on(store, library)
+    session.resume()
+    assert ("set_loop", True) in player.calls and ("set_mono", True) in player.calls
+
+
 # ------------------------------ track filters ---------------------------- #
 
 SYNCED_IDS = ["TRK0000", "TRK0001", "TRK0002"]  # TRK0003 has plain lyrics only

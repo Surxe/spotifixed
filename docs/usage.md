@@ -71,6 +71,10 @@ lost with one earbud in or with hearing that is weaker on one side. The output s
 two-channel, so it does not depend on how the sound server spreads a mono stream. A
 change applies at once, to the song that is playing too, and is kept across restarts.
 
+**Repeat playlist** (also under **Settings**, off by default) starts the playlist again
+from its first song once the last one ends; off, playback stops there. A shuffled playlist
+repeats in the same shuffled order. A change applies at once and is kept across restarts.
+
 **Tracks** (also under **Settings**) chooses which tracks a playlist is made of. Both
 switches are on to begin with, so nothing is left out. With **Include tracks without
 synced lyrics** off, tracks that have no synced lyrics (plain text only, instrumental,
