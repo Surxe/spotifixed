@@ -103,7 +103,14 @@ def connect(settings: Settings, renderer: Renderer) -> tuple[OverlayModel, Daemo
         volume_indicator=settings.overlay_volume_indicator,
     )
     live = LiveSettings(OverlaySettings.from_settings(settings), model, renderer)
-    client = DaemonClient(settings.base_url, model, on_change=renderer.wake, on_overlay=live.apply)
+    client = DaemonClient(
+        settings.base_url,
+        model,
+        on_change=renderer.wake,
+        on_overlay=live.apply,
+        monitors=renderer.monitors,
+    )
+    renderer.on_monitors_changed(client.report_monitors)
     return model, client
 
 

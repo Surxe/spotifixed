@@ -163,6 +163,14 @@ monitor, font, size, colours, a second (next) line, how early a line appears and
 fade. **Show a sample line** puts a stand-in line on screen so you can do this with
 nothing playing; it goes away by itself when the panel or the tab is closed.
 
+**Monitor** lists the monitors the running overlay can see, by make and model. Left on
+**Automatic**, the compositor places each line, which on KDE means the screen in use when
+the line appears, so with two monitors the lyrics can jump between them. Picking one keeps
+them there. If that monitor is unplugged the overlay goes back to automatic until it
+returns. With the overlay not running the list shows only Automatic and the current
+choice. `SPOTIFIXED_OVERLAY_MONITOR` sets the starting value by connector name (such as
+`DP-2`).
+
 **Show volume changes** (on by default) puts spotifixed's volume, such as "Volume 65%",
 above the lyric line for 1.5 seconds whenever it changes: from the volume shortcuts, the
 **Vol** slider or anything else that changes mpv's volume. It shows while paused too, on

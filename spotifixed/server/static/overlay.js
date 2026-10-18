@@ -15,7 +15,7 @@ export const FIELDS = [
   { key: "anchor", label: "Anchor" },
   { key: "margin_x", label: "Margin X", unit: "px", slider: [-1000, 1000], edges: ["left", "right"] },
   { key: "margin_y", label: "Margin Y", unit: "px", slider: [-600, 600], edges: ["top", "bottom"] },
-  { key: "monitor", label: "Monitor", placeholder: "e.g. DP-2; empty lets the compositor choose" },
+  { key: "monitor", label: "Monitor", monitors: true },
   { key: "font_size", label: "Font size", unit: "pt", slider: [8, 96] },
   { key: "max_width", label: "Max width", unit: "px", slider: [200, 3000] },
   { key: "font", label: "Font", placeholder: "e.g. Sans Bold" },
@@ -47,6 +47,26 @@ export function parseValue(rule, raw) {
     return /^(#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]{3,20})$/i.test(raw) ? raw : undefined;
   }
   return String(raw);
+}
+
+// The entries of the Monitor list: automatic, then each monitor the running overlay
+// reported, then the chosen one if it is not among them (unplugged, or the overlay is not
+// running to say). With no overlay running there is nothing to list, and the last entry
+// says so.
+export function monitorChoices(monitors, current) {
+  const choices = [{ value: "", text: "Automatic (the screen in use)" }];
+  for (const { connector, description } of monitors ?? []) {
+    choices.push({ value: connector, text: description ? `${description} (${connector})` : connector });
+  }
+  const listed = choices.some((choice) => choice.value === current);
+  if (!listed) {
+    const missing = monitors?.length ? " (not connected)" : "";
+    choices.push({ value: current, text: `${current}${missing}` });
+  }
+  if (!monitors?.length) {
+    choices.push({ value: "", text: "Your monitors are listed while the overlay is running", disabled: true });
+  }
+  return choices;
 }
 
 // The slider range for a margin under an anchor. Along an axis the overlay is attached
@@ -147,6 +167,12 @@ export function initOverlayPanel({ getJson, postJson }) {
 
   function controlsFor(field, rule) {
     const id = `overlay-field-${field.key}`;
+    if (field.monitors) {
+      // Filled in by render, which knows the monitors.
+      const select = node("select", { id });
+      select.addEventListener("change", () => changed(field.key, select.value));
+      return [select];
+    }
     if (rule.kind === "choice" || field.key === "lines") {
       const choices = rule.kind === "choice" ? rule.choices : ["1", "2"];
       const select = node("select", { id }, ...choices.map((c) => node("option", { value: c, text: c })));
@@ -205,6 +231,19 @@ export function initOverlayPanel({ getJson, postJson }) {
 
   // ------------------------------- showing ------------------------------- //
 
+  function fillMonitors(select, choices) {
+    const wanted = JSON.stringify(choices);
+    if (select.dataset.choices === wanted) return; // leave an open list alone
+    select.dataset.choices = wanted;
+    const value = select.value;
+    select.replaceChildren(...choices.map((choice) => {
+      const option = node("option", { value: choice.value, text: choice.text });
+      option.disabled = Boolean(choice.disabled);
+      return option;
+    }));
+    select.value = value;
+  }
+
   function render() {
     if (!doc || !rules) return;
     for (const [key, { row, inputs, drop }] of rows) {
@@ -214,6 +253,10 @@ export function initOverlayPanel({ getJson, postJson }) {
       const configured = doc.defaults[key] === "" ? "(empty)" : doc.defaults[key];
       row.title = overridden ? `Configured value: ${configured}` : "";
       const field = FIELDS.find((candidate) => candidate.key === key);
+      if (field.monitors) {
+        const current = key in pending ? pending[key] : key in inFlight ? inFlight[key] : doc.settings[key];
+        fillMonitors(inputs[0], monitorChoices(doc.monitors, current ?? doc.defaults[key]));
+      }
       if (field.edges) {
         const [low, high] = marginSlider(field, doc.settings.anchor);
         inputs[0].min = String(low);
