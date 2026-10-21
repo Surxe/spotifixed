@@ -121,7 +121,9 @@ class Routes:
             ("POST", re.compile(rf"{API}/player/({'|'.join(_TRANSPORT)})"), self._transport),
             ("POST", re.compile(rf"{API}/player/seek"), self._seek),
             ("POST", re.compile(rf"{API}/player/volume"), self._volume),
+            ("POST", re.compile(rf"{API}/player/disable"), self._disable_current),
             ("POST", re.compile(rf"{API}/tracks/{segment}/offset"), self._offset),
+            ("POST", re.compile(rf"{API}/tracks/{segment}/disabled"), self._disabled),
             ("GET", re.compile(rf"{API}/session"), self._session_get),
             ("GET", re.compile(rf"{API}/shortcuts"), self._shortcuts_get),
             ("POST", re.compile(rf"{API}/session/settings"), self._session_settings),
@@ -267,6 +269,21 @@ class Routes:
         stored = self._library.set_offset(track_id, offset)
         self._player.set_offset(track_id, stored)
         return Response.json({"ok": True, "track_id": track_id, "offset_ms": stored})
+
+    def _disabled(self, track_id: str, body: dict[str, Any]) -> Response:
+        """Turn a track off or back on: ``{"disabled": true|false}``."""
+        disabled = body.get("disabled")
+        if not isinstance(disabled, bool):
+            raise ApiError(400, "disabled must be true or false")
+        stored = self._session.set_disabled(track_id, disabled)
+        return Response.json({"ok": True, "track_id": track_id, "disabled": stored})
+
+    def _disable_current(self, _body: dict[str, Any]) -> Response:
+        """Turn off the song that is on and skip it, for the skip-and-turn-off shortcut."""
+        track_id = self._session.disable_current()
+        if track_id is None:
+            raise ApiError(409, "nothing is playing to turn off")
+        return Response.json({"ok": True, "track_id": track_id, "disabled": True})
 
     # -------------------------------- overlay ------------------------------- #
 

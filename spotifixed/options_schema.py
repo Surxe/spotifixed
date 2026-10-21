@@ -342,6 +342,18 @@ OPTIONS_SCHEMA = {
             "SPOTIFIXED_SHORTCUT_VOLUME_UP. Empty disables it."
         ),
     },
+    "SHORTCUT_SKIP_DISABLE": {
+        "env": "SPOTIFIXED_SHORTCUT_SKIP_DISABLE",
+        "arg": "--shortcut-skip-disable",
+        "type": str,
+        "default": "LOGO+XF86AudioNext",
+        "section": _SHORTCUTS,
+        "help": (
+            "Global shortcut that skips the song that is on and turns it off, so it is not "
+            "played again until it is turned back on in the page's track list. In the same "
+            "format as SPOTIFIXED_SHORTCUT_VOLUME_UP. Empty disables it."
+        ),
+    },
     "SHORTCUT_VOLUME_STEP": {
         "env": "SPOTIFIXED_SHORTCUT_VOLUME_STEP",
         "arg": "--shortcut-volume-step",

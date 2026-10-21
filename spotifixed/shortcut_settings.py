@@ -13,12 +13,17 @@ checked here. Whether the key name exists is the desktop's to decide.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from .config import Settings
 from .errors import ConfigError
 
 MODIFIERS = ("CTRL", "ALT", "SHIFT", "NUM", "LOGO")
+
+# The daemon's API paths a press is sent to.
+VOLUME_PATH = "/api/v1/player/volume"
+DISABLE_PATH = "/api/v1/player/disable"
 
 # How a modifier and the commonest keys are written for a person, as KDE writes them.
 _MODIFIER_NAMES = {"CTRL": "Ctrl", "ALT": "Alt", "SHIFT": "Shift", "NUM": "Num", "LOGO": "Meta"}
@@ -48,12 +53,13 @@ MEDIA_KEYS = (
 
 @dataclass(frozen=True, slots=True)
 class Shortcut:
-    """One shortcut: its stable id for the portal, what it is for, and what it changes."""
+    """One shortcut: its stable id for the portal, what it is for, and the request it sends."""
 
     id: str
     description: str
     trigger: str
-    volume_delta: int
+    path: str
+    body: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, str]:
         return {"id": self.id, "description": self.description, "keys": describe(self.trigger)}
@@ -86,9 +92,19 @@ def from_settings(settings: Settings) -> list[Shortcut]:
     if not 1 <= step <= 100:
         raise ConfigError(f"SPOTIFIXED_SHORTCUT_VOLUME_STEP must be 1-100, got {step}")
     wanted = (
-        Shortcut("volume-up", "Raise spotifixed's volume", settings.shortcut_volume_up, step),
-        Shortcut("volume-down", "Lower spotifixed's volume", settings.shortcut_volume_down, -step),
-    )
+        Shortcut(
+            "volume-up", "Raise spotifixed's volume", settings.shortcut_volume_up,
+            VOLUME_PATH, {"delta": step},
+        ),
+        Shortcut(
+            "volume-down", "Lower spotifixed's volume", settings.shortcut_volume_down,
+            VOLUME_PATH, {"delta": -step},
+        ),
+        Shortcut(
+            "skip-disable", "Skip this song and turn it off", settings.shortcut_skip_disable,
+            DISABLE_PATH,
+        ),
+    )  # fmt: skip
     for shortcut in wanted:
         problem = shortcut.trigger and trigger_problem(shortcut.trigger)
         if problem:

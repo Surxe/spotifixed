@@ -217,6 +217,8 @@ class TrackState:
     offset_ms: int = 0
     audio_pin: str | None = None
     notes: str = ""
+    # Turned off from the page: left out of every playlist's queue until turned back on.
+    disabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -227,6 +229,7 @@ class TrackState:
             offset_ms=int(data.get("offset_ms") or 0),
             audio_pin=data.get("audio_pin") or None,
             notes=str(data.get("notes") or ""),
+            disabled=data.get("disabled") is True,
         )
 
 

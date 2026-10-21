@@ -84,6 +84,19 @@ longer shown. A change applies at once, to the queue that is playing too; the so
 is on carries on even if it is one of those left out. A shuffled order is not disturbed:
 a track that is left out keeps its place for when it is included again.
 
+**Turning a song off.** Each row of the track list has a box, ticked to begin with.
+Untick it and that song is skipped from then on, in every playlist it is in, until it is
+ticked again; the setting is kept with the track in the state directory
+(`state/tracks/<id>.json`, `"disabled": true`), so it survives restarts, re-syncs and a
+wiped cache. A song that is off stays listed, dimmed and struck through, and the line
+above the list counts how many are off. It keeps its place in a shuffled order, so ticking
+it again puts it back where it was. Turning off the song that is on skips it at once:
+playback goes on from the next song that is still on, playing or paused as it was (past
+the last song it goes back to the first, paused unless **Repeat playlist** is on).
+Clicking a song that is off still plays it, once. Turning off the last song a playlist
+could play is refused. The **skip and turn off** shortcut (below) does the same for the
+song that is on, from anywhere.
+
 **Page** (also under **Settings**) keeps the page light. **Show lyrics** off hides the
 lyric pane, with its bar and underline, and stops the page from fetching lyrics at all;
 the overlay is not affected. **Show time and position** off hides the elapsed time and
@@ -96,7 +109,8 @@ and work even with the page closed; `start --no-browser` is the lightest way to 
 The daemon listens on loopback only, refuses requests that do not name its own address
 or that come from another web origin, takes playlist and track IDs but never file
 paths, and has no endpoint that downloads anything. The only things a request can
-change are playback, a track's lyric offset and the overlay's appearance, each checked
+change are playback, a track's lyric offset or whether it is turned off, and the
+overlay's appearance, each checked
 against a fixed set of allowed values. mpv is started with no config file,
 no scripts and no network access.
 
@@ -115,8 +129,12 @@ as they are set up.
   points a press; `SPOTIFIXED_SHORTCUT_VOLUME_UP`, `SPOTIFIXED_SHORTCUT_VOLUME_DOWN` and
   `SPOTIFIXED_SHORTCUT_VOLUME_STEP` change them (see
   [Configuration](setup.md#configuration)), and an empty trigger turns one off.
+- **Skip and turn off** turns off the song that is on and skips to the next one, as
+  unticking its box in the track list does (see **Turning a song off**, above). It defaults to Meta+Next (`LOGO+XF86AudioNext`);
+  `SPOTIFIXED_SHORTCUT_SKIP_DISABLE` changes it. The page's track list updates at once
+  if it is open, so a song turned off by mistake can be ticked back on there.
 
-The volume shortcuts are held by the `shortcuts` command, which `start` runs beside the
+The shortcuts are held by the `shortcuts` command, which `start` runs beside the
 daemon. It registers them with the desktop through the XDG global shortcuts portal
 (`org.freedesktop.portal.GlobalShortcuts`), which KDE Plasma 6 and GNOME 48 provide and
 Sway does not. The configured trigger is a suggestion: the desktop binds it when it is
@@ -135,7 +153,8 @@ spotifixed's own name:
 
 `ctl` is for any other desktop shortcut, such as one bound in a desktop without the
 portal: `ctl toggle` pauses from inside a fullscreen application, and `ctl volume +5` is
-what a volume shortcut sends.
+what a volume shortcut sends. Skip and turn off has no `ctl` verb; it is a
+`POST /api/v1/player/disable`.
 
 ## The overlay
 

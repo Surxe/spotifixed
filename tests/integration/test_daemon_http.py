@@ -61,12 +61,14 @@ class Client:
 class EventStream:
     """Reads an event stream on a thread and collects the events and comments it sees.
 
-    ``events`` are the playback states; ``overlay`` are the overlay settings documents.
+    ``events`` are the playback states; ``overlay`` are the overlay settings documents;
+    ``tracks`` are the notes that a track was turned off or on.
     """
 
     def __init__(self, daemon: Daemon, headers: dict[str, str] | None = None) -> None:
         self.events: list[dict] = []
         self.overlay: list[dict] = []
+        self.tracks: list[dict] = []
         self.comments: list[str] = []
         self.headers = None
         self._seen = threading.Condition()
@@ -93,6 +95,8 @@ class EventStream:
                     for entry in block:
                         if entry == "event: overlay":
                             kind = self.overlay
+                        elif entry == "event: tracks":
+                            kind = self.tracks
                         elif entry.startswith("data: "):
                             kind.append(json.loads(entry[6:]))
                         elif entry.startswith(":"):
@@ -279,6 +283,21 @@ def test_event_stream_carries_the_overlay_settings_alongside_playback(fake):
         finally:
             overlay.close()
         browser.wait(lambda: browser.overlay[-1]["clients"] == 0, timeout=5)
+    finally:
+        browser.close()
+
+
+def test_event_stream_says_when_a_track_is_turned_off_or_on(fake):
+    daemon, player, client = fake
+    browser = EventStream(daemon)
+    try:
+        browser.wait(lambda: browser.events)
+        assert browser.tracks == []  # nothing on connecting
+        status, _ = client.json("POST", "/api/v1/tracks/TRK0001/disabled", {"disabled": True})
+        assert status == 200
+        browser.wait(lambda: browser.tracks == [{"version": 1}])
+        client.json("POST", "/api/v1/tracks/TRK0001/disabled", {"disabled": False})
+        browser.wait(lambda: browser.tracks[-1] == {"version": 2})
     finally:
         browser.close()
 

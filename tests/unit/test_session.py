@@ -576,3 +576,94 @@ def test_a_stored_filter_that_makes_no_sense_counts_as_on(store, library):
     store.write_json(store.session_json, {"settings": {"include_without_lyrics": "no"}})
     session, _ = session_on(store, library)
     assert session.document()["settings"]["include_without_lyrics"] is True
+
+
+# ------------------------------ turning off ------------------------------ #
+
+
+def test_a_track_turned_off_is_listed_but_not_queued_and_stays_off_after_a_restart(store, library):
+    session, _ = session_on(store, library)
+    session.set_disabled("TRK0001", True)
+    arranged = session.arranged(library.playlist(PLAYLIST_ID))
+    assert [t["id"] for t in arranged["tracks"]] == [*PLAYABLE, "TRK0004"]
+    assert [t["id"] for t in arranged["tracks"] if t["disabled"]] == ["TRK0001"]
+    assert (arranged["disabled"], arranged["hidden"]) == (1, 0)
+    assert ids(session.queue_for(PLAYLIST_ID)) == ["TRK0000", "TRK0002", "TRK0003"]
+    # Kept with the track, not the session.
+    assert assets.read_track_state(store, "TRK0001").disabled is True
+    assert "disabled" not in json.dumps(saved(store))
+    later, _ = session_on(store, library)
+    assert ids(later.queue_for(PLAYLIST_ID)) == ["TRK0000", "TRK0002", "TRK0003"]
+    later.set_disabled("TRK0001", False)
+    assert ids(later.queue_for(PLAYLIST_ID)) == PLAYABLE
+
+
+def test_a_track_turned_off_keeps_its_place_in_a_kept_order(store, library):
+    session, _ = session_on(store, library)
+    order = session.shuffle(PLAYLIST_ID)
+    session.set_disabled(order[1], True)
+    assert ids(session.queue_for(PLAYLIST_ID)) == [t for t in order if t != order[1]]
+    assert saved(store)["orders"] == {PLAYLIST_ID: order}
+    session.set_disabled(order[1], False)
+    assert ids(session.queue_for(PLAYLIST_ID)) == order
+
+
+def test_a_track_turned_off_that_is_asked_for_plays_anyway(store, library):
+    session, _ = session_on(store, library)
+    session.set_disabled("TRK0002", True)
+    queue = session.queue_for(PLAYLIST_ID, start_track_id="TRK0002")
+    assert ids(queue) == PLAYABLE and queue.start_index == 2
+
+
+def test_turning_off_another_track_brings_the_playing_queue_up_to_date(store, library):
+    session, player = session_on(store, library)
+    player.load_queue(session.queue_for(PLAYLIST_ID, start_track_id="TRK0001"))
+    session.set_disabled("TRK0002", True)
+    assert player.calls[-1] == ("reorder", ["TRK0000", "TRK0001", "TRK0003"])
+    assert player.bus.current.track_id == "TRK0001"
+
+
+@pytest.mark.parametrize("paused", [False, True])
+def test_turning_off_the_song_that_is_on_skips_to_the_next_one_still_on(store, library, paused):
+    session, player = session_on(store, library)
+    player.load_queue(session.queue_for(PLAYLIST_ID, start_track_id="TRK0001"), paused=paused)
+    session.set_disabled("TRK0002", True)
+    session.set_disabled("TRK0001", True)
+    assert player.calls[-1] == ("load_queue", ["TRK0000", "TRK0003"], 1)
+    assert player.bus.current.track_id == "TRK0003"
+    assert player.paused is paused
+
+
+@pytest.mark.parametrize(("loop", "paused"), [(False, True), (True, False)])
+def test_turning_off_the_last_song_goes_back_to_the_first(store, library, loop, paused):
+    session, player = session_on(store, library)
+    session.set_settings({"loop": loop})
+    player.load_queue(session.queue_for(PLAYLIST_ID, start_track_id="TRK0003"))
+    session.set_disabled("TRK0003", True)
+    assert player.calls[-1] == ("load_queue", ["TRK0000", "TRK0001", "TRK0002"], 0)
+    assert player.paused is paused
+
+
+def test_the_shortcut_turns_off_the_song_that_is_on(store, library):
+    session, player = session_on(store, library)
+    assert session.disable_current() is None
+    assert session.tracks_version == 0
+    player.load_queue(session.queue_for(PLAYLIST_ID, start_track_id="TRK0000"))
+    heard: list[int] = []
+    session.subscribe_tracks(lambda: heard.append(session.tracks_version))
+    assert session.disable_current() == "TRK0000"
+    assert assets.read_track_state(store, "TRK0000").disabled is True
+    assert player.bus.current.track_id == "TRK0001"
+    assert heard == [1]
+
+
+def test_turning_off_the_last_track_that_could_play_is_refused_and_nothing_is_kept(store, library):
+    session, player = session_on(store, library)
+    for tid in PLAYABLE[1:]:
+        session.set_disabled(tid, True)
+    player.load_queue(session.queue_for(PLAYLIST_ID, start_track_id="TRK0000"))
+    calls, version = len(player.calls), session.tracks_version
+    with pytest.raises(NotInCacheError, match="turned off"):
+        session.set_disabled("TRK0000", True)
+    assert assets.read_track_state(store, "TRK0000").disabled is False
+    assert len(player.calls) == calls and session.tracks_version == version

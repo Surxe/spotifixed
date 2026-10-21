@@ -88,15 +88,20 @@ def wait_for(condition, timeout: float = 10.0) -> None:
         time.sleep(0.05)
 
 
-def test_each_press_becomes_one_volume_change_and_others_are_ignored(portal, fake_server):
+def test_each_press_becomes_one_request_and_others_are_ignored(portal, fake_server):
     portal_process = portal
     fake_server.route("POST", "/api/v1/player/volume", (200, {"ok": True}))
+    fake_server.route("POST", "/api/v1/player/disable", (200, {"ok": True}))
     process = shortcuts_process(port_of(fake_server.url), "--shortcut-volume-step", "7")
     try:
-        wait_for(lambda: len([r for r in fake_server.requests if r.method == "POST"]) >= 2)
+        wait_for(lambda: len([r for r in fake_server.requests if r.method == "POST"]) >= 3)
         time.sleep(0.5)  # the presses it must ignore come after; give them time to arrive
-        volume = [r.json() for r in fake_server.requests if r.path == "/api/v1/player/volume"]
-        assert volume == [{"delta": 7}, {"delta": -7}]
+        sent = [(r.path, r.json()) for r in fake_server.requests if r.method == "POST"]
+        assert sent == [
+            ("/api/v1/player/volume", {"delta": 7}),
+            ("/api/v1/player/volume", {"delta": -7}),
+            ("/api/v1/player/disable", {}),
+        ]
     finally:
         process.send_signal(signal.SIGTERM)
         out, err = process.communicate(timeout=5)
@@ -109,13 +114,16 @@ def test_each_press_becomes_one_volume_change_and_others_are_ignored(portal, fak
     assert [(sid, info["preferred_trigger"]) for sid, info in bound["args"][1]] == [
         ("volume-up", "CTRL+XF86AudioRaiseVolume"),
         ("volume-down", "CTRL+XF86AudioLowerVolume"),
+        ("skip-disable", "LOGO+XF86AudioNext"),
     ]
 
 
 @pytest.mark.usefixtures("portal")
 def test_an_empty_trigger_leaves_that_shortcut_out(fake_server):
     fake_server.route("POST", "/api/v1/player/volume", (200, {"ok": True}))
-    process = shortcuts_process(port_of(fake_server.url), "--shortcut-volume-up", "")
+    process = shortcuts_process(
+        port_of(fake_server.url), "--shortcut-volume-up", "", "--shortcut-skip-disable", ""
+    )
     try:
         wait_for(lambda: any(r.method == "POST" for r in fake_server.requests))
         time.sleep(0.5)
@@ -136,8 +144,9 @@ def test_without_a_portal_it_says_the_desktop_cannot_hold_shortcuts(session_bus,
 
 def test_with_no_shortcut_set_it_binds_nothing_and_ends(session_bus, fake_server):
     process = shortcuts_process(
-        port_of(fake_server.url), "--shortcut-volume-up", "", "--shortcut-volume-down", ""
-    )
+        port_of(fake_server.url),
+        "--shortcut-volume-up", "", "--shortcut-volume-down", "", "--shortcut-skip-disable", "",
+    )  # fmt: skip
     out, _err = process.communicate(timeout=10)
     assert process.returncode == 0
     assert "no keyboard shortcuts are set" in out
@@ -146,16 +155,17 @@ def test_with_no_shortcut_set_it_binds_nothing_and_ends(session_bus, fake_server
 def test_a_second_run_finds_its_shortcuts_bound_and_does_not_bind_again(portal, fake_server):
     """Binding shows the desktop's dialog, so only the first run may bind."""
     fake_server.route("POST", "/api/v1/player/volume", (200, {"ok": True}))
+    fake_server.route("POST", "/api/v1/player/disable", (200, {"ok": True}))
     for run in (1, 2):
         process = shortcuts_process(port_of(fake_server.url))
         try:
-            wait_for(lambda run=run: len(fake_server.requests) >= 2 * run)
+            wait_for(lambda run=run: len(fake_server.requests) >= 3 * run)
         finally:
             process.send_signal(signal.SIGTERM)
             out, err = process.communicate(timeout=5)
         assert process.returncode == 0, err
         assert "Raise spotifixed's volume: CTRL+XF86AudioRaiseVolume" in out
-    assert [r.json() for r in fake_server.requests] == [{"delta": 5}, {"delta": -5}] * 2
+    assert [r.json() for r in fake_server.requests] == [{"delta": 5}, {"delta": -5}, {}] * 2
 
     portal.terminate()
     methods = [json.loads(line)["method"] for line in portal.stdout if line.startswith("{")]

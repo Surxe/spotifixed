@@ -6,22 +6,35 @@ import pytest
 
 from spotifixed.config import load_settings
 from spotifixed.errors import ConfigError
-from spotifixed.shortcut_settings import describe, from_settings, trigger_problem
+from spotifixed.shortcut_settings import (
+    DISABLE_PATH,
+    VOLUME_PATH,
+    describe,
+    from_settings,
+    trigger_problem,
+)
 
 
-def test_the_defaults_are_ctrl_and_the_volume_keys_five_at_a_time():
-    up, down = from_settings(load_settings())
-    assert (up.id, up.trigger, up.volume_delta) == ("volume-up", "CTRL+XF86AudioRaiseVolume", 5)
-    assert (down.id, down.trigger, down.volume_delta) == (
-        "volume-down", "CTRL+XF86AudioLowerVolume", -5,
+def test_the_defaults_are_ctrl_volume_five_at_a_time_and_meta_next_to_skip():
+    up, down, skip = from_settings(load_settings())
+    assert (up.id, up.trigger, up.path, up.body) == (
+        "volume-up", "CTRL+XF86AudioRaiseVolume", VOLUME_PATH, {"delta": 5},
     )  # fmt: skip
+    assert (down.id, down.trigger, down.body) == (
+        "volume-down", "CTRL+XF86AudioLowerVolume", {"delta": -5},
+    )  # fmt: skip
+    assert (skip.id, skip.trigger, skip.path, skip.body) == (
+        "skip-disable", "LOGO+XF86AudioNext", DISABLE_PATH, {},
+    )  # fmt: skip
+    assert describe(skip.trigger) == "Meta+Next"
 
 
 def test_an_empty_trigger_leaves_that_shortcut_out(monkeypatch):
     monkeypatch.setenv("SPOTIFIXED_SHORTCUT_VOLUME_UP", "")
+    monkeypatch.setenv("SPOTIFIXED_SHORTCUT_SKIP_DISABLE", "")
     monkeypatch.setenv("SPOTIFIXED_SHORTCUT_VOLUME_STEP", "10")
     (down,) = from_settings(load_settings())
-    assert (down.id, down.volume_delta) == ("volume-down", -10)
+    assert (down.id, down.body) == ("volume-down", {"delta": -10})
 
 
 @pytest.mark.parametrize(

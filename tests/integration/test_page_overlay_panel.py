@@ -329,6 +329,42 @@ def test_clicking_a_track_in_a_shuffled_list_plays_on_down_the_list(daemon, tmp_
     assert daemon.player.calls[-1] == ("load_queue", listed[:4], 1)
 
 
+OFF = "[...document.querySelectorAll('#tracks li.off')].map((row) => row.dataset.id)"
+
+
+def test_a_track_is_turned_off_from_its_row_and_the_list_follows_the_shortcut(daemon, tmp_path):
+    """Unticking a row turns the song off without playing it; the shortcut shows too."""
+    box = "document.querySelector('#tracks li[data-id=\"TRK0001\"] input.on')"
+    results = drive(daemon, tmp_path, [
+        READY,
+        {"eval": f"{box}.checked"},
+        {"eval": "document.querySelector('#tracks li[data-id=\"TRK0004\"] input.on').disabled"},
+        {"eval": f"{box}.click()"},
+        {"wait": f"JSON.stringify({OFF}) === '[\"TRK0001\"]'"},
+        {"eval": "document.getElementById('coverage').textContent"},
+    ])  # fmt: skip
+    assert results[1] is True and results[2] is True  # no audio: nothing to turn off
+    assert results[-1].endswith(", 1 turned off")
+    assert daemon.routes._library.track("TRK0001")["disabled"] is True
+    assert not any(call[0] == "load_queue" for call in daemon.player.calls)  # not played
+
+    playlist_id = next(iter(daemon.routes._library.playlists()))["id"]
+    daemon.routes.dispatch(
+        "POST", "/api/v1/player/load",
+        json.dumps({"playlist_id": playlist_id, "start_track_id": "TRK0002"}).encode(),
+    )  # fmt: skip
+    results = drive(daemon, tmp_path, [
+        READY,
+        {"eval": OFF},
+        {"eval": "fetch('/api/v1/player/disable', {method: 'POST', headers: "
+                 "{'Content-Type': 'application/json'}, body: '{}'}).then((r) => r.status)"},
+        {"wait": f"JSON.stringify({OFF}) === '[\"TRK0001\",\"TRK0002\"]'"},
+        {"eval": "document.querySelector('#tracks li.current').dataset.id"},
+    ])  # fmt: skip
+    assert results[1] == ["TRK0001"] and results[2] == 200
+    assert results[-1] == "TRK0003"
+
+
 OFFSET_TEXT_OF_TRK0002 = (
     "document.querySelector('#tracks li[data-id=\"TRK0002\"] .offset').textContent === '+50 ms'"
 )
