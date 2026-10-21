@@ -51,9 +51,10 @@ time and position** and the page stops redrawing them.
 A small remote-control page in your browser runs the music: pick a playlist, click a
 track, and the lyrics follow along. It remembers the song and position you left off at,
 can shuffle a playlist and keep that order, fade the music in when you resume, play the
-same sound in both ears, and leave out tracks without lyrics. Media keys work from inside
-a fullscreen game, without the page open, and Ctrl+Volume Up and Down turn spotifixed
-alone up or down (both keys can be changed).
+same sound in both ears, and leave out tracks without lyrics or songs you turn off. Media
+keys work from inside a fullscreen game, without the page open; Ctrl+Volume Up and Down
+turn spotifixed alone up or down, and Meta+Next skips a song and turns it off (these keys
+can be changed).
 
 ## Get started
 

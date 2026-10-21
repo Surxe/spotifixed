@@ -75,6 +75,7 @@ class Settings:
     overlay_volume_indicator: bool
     shortcut_volume_up: str
     shortcut_volume_down: str
+    shortcut_skip_disable: str
     shortcut_volume_step: int
 
     def __repr__(self) -> str:

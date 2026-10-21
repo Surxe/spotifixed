@@ -324,6 +324,10 @@ deliberately not registered, so a token cannot end up on a command line.
   - Default: `"CTRL+XF86AudioLowerVolume"`
   - Command line: `--shortcut-volume-down`
 
+* **SPOTIFIXED_SHORTCUT_SKIP_DISABLE** - Global shortcut that skips the song that is on and turns it off, so it is not played again until it is turned back on in the page's track list. In the same format as SPOTIFIXED_SHORTCUT_VOLUME_UP. Empty disables it.
+  - Default: `"LOGO+XF86AudioNext"`
+  - Command line: `--shortcut-skip-disable`
+
 * **SPOTIFIXED_SHORTCUT_VOLUME_STEP** - How much one press of a volume shortcut changes the volume, out of 100.
   - Default: `"5"`
   - Command line: `--shortcut-volume-step`

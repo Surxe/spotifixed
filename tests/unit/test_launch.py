@@ -156,6 +156,7 @@ def test_start_leaves_out_the_shortcuts_when_asked_or_when_none_are_set(fake_ser
     launch.run(load_settings(), overlay=False, shortcuts=False, open_page=False, open_url=print)
     monkeypatch.setenv("SPOTIFIXED_SHORTCUT_VOLUME_UP", "")
     monkeypatch.setenv("SPOTIFIXED_SHORTCUT_VOLUME_DOWN", "")
+    monkeypatch.setenv("SPOTIFIXED_SHORTCUT_SKIP_DISABLE", "")
     launch.run(load_settings(), overlay=False, open_page=False, open_url=print)
     assert fake_serve.calls == 2 and fake_serve.shortcuts == []
 

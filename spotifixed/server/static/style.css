@@ -74,7 +74,7 @@ ol { list-style: none; margin: 0; padding: 0; }
 
 #tracks li {
   display: grid;
-  grid-template-columns: 3.2em 1fr auto auto auto;
+  grid-template-columns: auto 3.2em 1fr auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 6px 16px;
@@ -86,6 +86,9 @@ ol { list-style: none; margin: 0; padding: 0; }
 #tracks li.current { background: #17283a; }
 #tracks li.current .name { color: var(--accent); }
 #tracks li.unplayable { cursor: default; opacity: 0.5; }
+#tracks li.off .name, #tracks li.off .badges, #tracks li.off .length { opacity: 0.45; }
+#tracks li.off .name { text-decoration: line-through; }
+#tracks input.on { margin: 0; cursor: pointer; }
 #tracks .index, #tracks .length, #tracks .offset { color: var(--muted); font-variant-numeric: tabular-nums; }
 #tracks .offset { font-size: 12px; white-space: nowrap; }
 #tracks .offset.set { color: var(--accent); }

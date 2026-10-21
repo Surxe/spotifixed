@@ -57,6 +57,7 @@ class Library:
             "timing_confidence": lyrics.timing_confidence if lyrics else None,
             "has_cover": status.has_cover,
             "offset_ms": status.state.offset_ms,
+            "disabled": status.state.disabled,
         }
 
     @staticmethod
@@ -145,10 +146,13 @@ class Library:
             raise NotInCacheError(f"playlist {playlist_id} has no cached audio to play")
         return playable
 
-    def playable_ids(self, playlist_id: str, *, synced_only: bool = False) -> list[str]:
+    def playable_ids(
+        self, playlist_id: str, *, synced_only: bool = False, enabled_only: bool = False
+    ) -> list[str]:
         """Track IDs that can be played, in playlist order; a repeat is listed each time.
 
-        ``synced_only`` leaves out the tracks without synced lyrics, and can be empty.
+        ``synced_only`` leaves out the tracks without synced lyrics and ``enabled_only``
+        the ones turned off; either can leave nothing.
         """
         playable = self._playable(playlist_id)
         return [
@@ -156,6 +160,7 @@ class Library:
             for track_id in self._playlist(playlist_id).track_ids
             if track_id in playable
             and not (synced_only and playable[track_id].lyrics_kind is not LyricsKind.SYNCED)
+            and not (enabled_only and playable[track_id].state.disabled)
         ]
 
     def queue_for(
@@ -198,3 +203,9 @@ class Library:
         clamped = max(-MAX_OFFSET_MS, min(MAX_OFFSET_MS, int(offset_ms)))
         assets.write_track_state(self._store, track_id, replace(status.state, offset_ms=clamped))
         return clamped
+
+    def set_disabled(self, track_id: str, disabled: bool) -> bool:
+        """Persist whether a track is turned off. Returns the value stored."""
+        status = self._status(track_id)
+        assets.write_track_state(self._store, track_id, replace(status.state, disabled=disabled))
+        return disabled

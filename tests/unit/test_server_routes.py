@@ -85,6 +85,7 @@ def test_playlist_detail_has_tracks_in_order_with_status(routes):
         "timing_confidence": "high",
         "has_cover": True,
         "offset_ms": 0,
+        "disabled": False,
     }
     assert tracks[2]["timing_confidence"] == "low"
     assert (tracks[3]["lyrics_kind"], tracks[3]["has_cover"]) == ("plain", False)
@@ -320,6 +321,11 @@ def test_shortcuts_lists_the_configured_ones_and_the_media_keys(store, player):
             "id": "volume-down",
             "description": "Lower spotifixed's volume",
             "keys": "Ctrl+Volume Down",
+        },
+        {
+            "id": "skip-disable",
+            "description": "Skip this song and turn it off",
+            "keys": "Meta+Next",
         },
     ]
     assert {"keys": "Play/Pause", "description": "Play or pause"} in body["media_keys"]
@@ -607,3 +613,23 @@ def test_track_filters_change_what_a_playlist_lists_and_loads(routes, player):
     _, loaded = post(routes, "/player/load", {"playlist_id": PLAYLIST_ID})
     assert loaded["queue_length"] == 3
     assert post(routes, "/session/settings", {"include_without_audio": "no"})[0].status == 400
+
+
+def test_a_track_is_turned_off_and_on_by_its_disabled_value(routes):
+    response, body = post(routes, "/tracks/TRK0001/disabled", {"disabled": True})
+    assert response.status == 200 and body == {"ok": True, "track_id": "TRK0001", "disabled": True}
+    _, playlist = get(routes, f"/playlists/{PLAYLIST_ID}")
+    assert playlist["disabled"] == 1 and playlist["tracks"][1]["disabled"] is True
+    for bad in ({}, {"disabled": "yes"}, {"disabled": 1}):
+        assert post(routes, "/tracks/TRK0001/disabled", bad)[0].status == 400
+    assert post(routes, "/tracks/NOPE0000/disabled", {"disabled": True})[0].status == 404
+    assert post(routes, "/tracks/TRK0001/disabled", {"disabled": False})[1]["disabled"] is False
+
+
+def test_the_skip_and_turn_off_shortcut_needs_a_song_that_is_on(routes, player):
+    response, body = post(routes, "/player/disable")
+    assert response.status == 409 and "nothing is playing" in body["error"]
+    post(routes, "/player/load", {"playlist_id": PLAYLIST_ID, "start_track_id": "TRK0002"})
+    response, body = post(routes, "/player/disable")
+    assert response.status == 200 and body["track_id"] == "TRK0002"
+    assert player.bus.current.track_id == "TRK0003"

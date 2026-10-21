@@ -28,6 +28,14 @@ second off, tracks that have no audio (which are never queued) are not listed ei
 change applies at once, to the queue that is playing too. Neither touches a kept order:
 a track that is left out keeps its place for when it is let back in.
 
+Turned off. A track can also be turned off by hand, from its row in the track list or
+with the skip-and-turn-off shortcut. That is kept with the track itself (its ``disabled``
+value in the state directory), not here, so it holds in every playlist the track is in.
+A track that is off is listed as usual, so it can be turned back on, but is not queued;
+like the two filters it keeps its place in a kept order. Turning off the song that is on
+skips it: playback goes on from the next song that is still on, playing or paused as it
+was. Clicking a track that is off plays it anyway, as a one-off.
+
 The last two say what the remote-control page draws: ``show_lyrics`` (the lyric pane, with
 its progress bar and underline) and ``show_position`` (the elapsed time and seek slider),
 both on by default. They change nothing in playback; with both off the page does no work
@@ -97,6 +105,9 @@ class PlaybackSession:
         self._ordering = threading.Lock()  # one change of order at a time, player included
         self._data: dict[str, Any] = self._read()
         self._saving = False
+        # Counts the changes to which tracks are turned off, for clients that list them.
+        self._tracks_version = 0
+        self._tracks_listeners: list[Callable[[], None]] = []
         player.bus.subscribe(self._on_state)
 
     # ------------------------------- storage ------------------------------- #
@@ -243,6 +254,13 @@ class PlaybackSession:
                     f"playlist {playlist_id} has no tracks with synced lyrics to play; "
                     "tracks without lyrics are left out by a setting"
                 )
+        enabled = set(self._library.playable_ids(playlist_id, enabled_only=True))
+        order = [track_id for track_id in order if track_id in enabled or track_id == keep]
+        if not order:
+            raise NotInCacheError(
+                "every track in this playlist that could play is turned off; "
+                "turn one back on in the track list"
+            )
         return order
 
     def _apply(self, playlist_id: str) -> None:
@@ -291,7 +309,8 @@ class PlaybackSession:
         """A playlist as the API describes it, with its tracks in the kept order.
 
         Tracks that cannot be played have no place in an order; they follow the rest.
-        Tracks the settings leave out are not listed, only counted (``hidden``).
+        Tracks the settings leave out are not listed, only counted (``hidden``). Tracks
+        turned off are listed, and counted too (``disabled``).
         """
         tracks = playlist["tracks"]
         playable = [track["id"] for track in tracks if track["has_audio"]]
@@ -313,7 +332,81 @@ class PlaybackSession:
             "shuffled": order is not None,
             "tracks": listed,
             "hidden": len(tracks) - len(listed),
+            "disabled": sum(1 for track in listed if track["disabled"]),
         }
+
+    # ------------------------------ turning off ----------------------------- #
+
+    @property
+    def tracks_version(self) -> int:
+        return self._tracks_version
+
+    def subscribe_tracks(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call ``listener`` after a track is turned off or on. Returns an unsubscribe."""
+        with self._lock:
+            self._tracks_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            with self._lock:
+                if listener in self._tracks_listeners:
+                    self._tracks_listeners.remove(listener)
+
+        return unsubscribe
+
+    def set_disabled(self, track_id: str, disabled: bool) -> bool:
+        """Turn a track off, or back on, in every playlist. The playing queue follows."""
+        with self._ordering:
+            return self._set_disabled(track_id, disabled)
+
+    def disable_current(self) -> str | None:
+        """Turn off the song that is on, which skips it. ``None`` when nothing is on."""
+        with self._ordering:
+            track_id = self._player.bus.current.track_id
+            if track_id is not None:
+                self._set_disabled(track_id, True)
+            return track_id
+
+    def _set_disabled(self, track_id: str, disabled: bool) -> bool:
+        """Ordering lock held. Refused, and nothing kept, if it would leave nothing to play."""
+        state = self._player.bus.current
+        playing = state.playlist_id if state.queue_length else None
+        skip = disabled and playing is not None and state.track_id == track_id
+        if skip:
+            with self._lock:
+                before = self._queue_order(playing, keep=track_id)
+        was = self._library.track(track_id)["disabled"]
+        self._library.set_disabled(track_id, disabled)
+        try:
+            if skip:
+                self._skip(playing, track_id, before, paused=state.paused)
+            elif playing is not None:
+                self._apply(playing)
+        except NotInCacheError:
+            self._library.set_disabled(track_id, was)
+            raise
+        with self._lock:
+            self._tracks_version += 1
+            listeners = list(self._tracks_listeners)
+        for listener in listeners:
+            listener()
+        return disabled
+
+    def _skip(self, playlist_id: str, track_id: str, before: list[str], *, paused: bool) -> None:
+        """Play on from the song after ``track_id`` in ``before`` that is still queued.
+
+        Past the end the queue starts again from its first song: playing on if the
+        playlist repeats, and paused, as at the end of a playlist, if it does not.
+        """
+        with self._lock:
+            order = self._queue_order(playlist_id)
+            repeats = self._player_switch_on("loop")
+        queued = set(order)
+        after = before[before.index(track_id) + 1 :]
+        start = next((candidate for candidate in after if candidate in queued), None)
+        if start is None:
+            start, paused = order[0], paused or not repeats
+        queue = self._library.queue_for(playlist_id, start_track_id=start, order=order)
+        self._player.load_queue(queue, paused=paused)
 
     # -------------------------------- loading ------------------------------ #
 

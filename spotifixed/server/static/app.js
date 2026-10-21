@@ -147,7 +147,8 @@ async function showPlaylist(id) {
   const c = playlist.coverage;
   els.coverage.textContent =
     `${c.tracks} tracks, ${c.audio} with audio, ${c.synced} with synced lyrics` +
-    (playlist.hidden ? `, ${playlist.hidden} left out by settings` : "");
+    (playlist.hidden ? `, ${playlist.hidden} left out by settings` : "") +
+    (playlist.disabled ? `, ${playlist.disabled} turned off` : "");
   els.tracks.replaceChildren(...playlist.tracks.map(trackRow));
   els.unshuffle.hidden = !playlist.shuffled;
   markCurrentTrack();
@@ -169,9 +170,30 @@ function setRowOffset(trackId, ms) {
   cell.classList.toggle("set", ms !== 0);
 }
 
+// A song that is turned off is skipped when the playlist plays, in every playlist it is
+// in. It stays listed, dimmed, so that it can be turned back on; clicking it still plays it.
+async function setDisabled(trackId, disabled) {
+  const result = await postJson(`/tracks/${trackId}/disabled`, { disabled });
+  // On success the list is redrawn by the event that follows; on failure the box goes back.
+  if (result.ok) return;
+  if (playlist) await showPlaylist(playlist.id);
+  els.coverage.textContent = result.error;
+}
+
 function trackRow(track, index) {
   const row = element("li", track.has_audio ? "" : "unplayable");
+  row.classList.toggle("off", track.disabled);
   row.dataset.id = track.id;
+  const on = element("input", "on");
+  on.type = "checkbox";
+  on.checked = !track.disabled;
+  on.disabled = !track.has_audio;
+  on.title = track.disabled
+    ? "Turned off: skipped when the playlist plays. Tick to hear it again."
+    : "Untick to skip this song from now on, in every playlist.";
+  on.setAttribute("aria-label", `Play ${track.title} with the playlist`);
+  on.addEventListener("click", (event) => event.stopPropagation());
+  on.addEventListener("change", () => setDisabled(track.id, !on.checked));
   const name = element("span", "name");
   name.append(track.title, element("span", "by", `  ${track.artists.join(", ")}`));
   const badges = element("span", "badges");
@@ -185,6 +207,7 @@ function trackRow(track, index) {
   offset.classList.toggle("set", track.offset_ms !== 0);
   offset.title = "Lyric offset for this track";
   row.append(
+    on,
     element("span", "index", String(index + 1)),
     name,
     badges,
@@ -419,6 +442,8 @@ function schedule() {
 function connect() {
   const events = new EventSource(`${API}/events`);
   events.addEventListener("state", (event) => applyState(JSON.parse(event.data)));
+  // A song was turned off or back on, here, in another tab or by the keyboard shortcut.
+  events.addEventListener("tracks", () => playlist && showPlaylist(playlist.id));
   events.addEventListener("overlay", (event) => {
     const overlay = JSON.parse(event.data);
     underlineWord = Boolean(overlay.settings?.underline_word);

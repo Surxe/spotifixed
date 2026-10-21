@@ -14,8 +14,6 @@ from ..errors import HttpError, PlaylistPlayerError
 from ..http import HttpClient
 from ..shortcut_settings import Shortcut, from_settings
 
-VOLUME_PATH = "/api/v1/player/volume"
-
 
 def _bound_line(shortcuts: list[Shortcut], bound: dict[str, str]) -> str:
     """One line for the terminal: which keys the desktop gave each shortcut."""
@@ -47,13 +45,13 @@ def run(settings: Settings) -> int:
 
     def send(shortcut: Shortcut) -> None:
         try:
-            client.post_json(settings.base_url + VOLUME_PATH, {"delta": shortcut.volume_delta})
+            client.post_json(settings.base_url + shortcut.path, shortcut.body)
         except HttpError as exc:
             reason = "spotifixed is not running" if exc.status is None else exc.detail or exc
-            print(f"spotifixed: a volume shortcut did nothing: {reason}",
+            print(f"spotifixed: the shortcut {shortcut.description!r} did nothing: {reason}",
                   file=sys.stderr, flush=True)  # fmt: skip
         except Exception as exc:  # on a worker thread nothing else would ever show it
-            print(f"spotifixed: a volume shortcut failed: {exc!r}", file=sys.stderr, flush=True)
+            print(f"spotifixed: a shortcut failed: {exc!r}", file=sys.stderr, flush=True)
 
     def bound(triggers: dict[str, str]) -> None:
         line = _bound_line(shortcuts, triggers)

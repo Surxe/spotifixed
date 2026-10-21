@@ -156,6 +156,7 @@ class Daemon:
                         daemon.stopping,
                         keepalive_s=daemon.keepalive_s,
                         overlay=daemon.overlay,
+                        session=daemon.session,
                     )
                 finally:
                     if is_overlay:
