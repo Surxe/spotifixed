@@ -20,18 +20,23 @@ from ..cache import CacheStore, assets
 from ..errors import PlaylistPlayerError
 from ..lyrics import parse_lrc
 from ..models import LyricsKind
-from .plan import WordSpan, settle, spell, voice_share, windows
+from .plan import MIN_STRONG_WORDS, WordSpan, settle, spell, strong_words, voice_share, windows
 
-# 2: records voice_share.
-VERSION = 2
+# 2: records voice_share. 3: records strong_words.
+VERSION = 3
 
 
 class Engine(Protocol):
     name: str
 
     def align(
-        self, audio: Path, spelled: Sequence[Sequence[str]], windows_for: Any
-    ) -> tuple[list[list[WordSpan] | None], list[float]]: ...
+        self,
+        audio: Path,
+        spelled: Sequence[Sequence[str]],
+        windows_for: Any,
+        *,
+        transcribe: bool = False,
+    ) -> tuple[list[list[WordSpan] | None], list[float], str | None]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +59,13 @@ def _made_from(text: str, audio: Path, offset_ms: int, engine: str) -> dict[str,
 
 
 def align_track(
-    store: CacheStore, track_id: str, engine: Callable[[], Engine], name: str, *, force: bool
+    store: CacheStore,
+    track_id: str,
+    engine: Callable[[], Engine],
+    name: str,
+    *,
+    force: bool,
+    listen_for_clean_edits: bool = True,
 ) -> AlignReport:
     status = assets.track_status(store, track_id)
     stored = assets.read_lyrics_text(store, track_id)
@@ -76,29 +87,33 @@ def align_track(
 
     lines = parse_lrc(text)
     spelled = [[spell(word) for word in line.text.split()] for line in lines]
+    in_lyrics = strong_words(" ".join(line.text for line in lines))
+    transcribe = listen_for_clean_edits and in_lyrics >= MIN_STRONG_WORDS
     listener = engine()  # outside the try: an engine that cannot be built stops the run
     try:
-        found, loudness = listener.align(
-            audio, spelled, lambda frames: windows(lines, offset_ms, frames)
+        found, loudness, said = listener.align(
+            audio, spelled, lambda frames: windows(lines, offset_ms, frames), transcribe=transcribe
         )
     except PlaylistPlayerError as exc:
         return AlignReport(track_id, "failed", str(exc))
     words = settle(found, loudness)
     share = voice_share(loudness)
-    store.write_json(
-        store.words_json(track_id),
-        {
-            **made_from,
-            "voice_share": round(share, 3),
-            "lines": [None if line is None else [list(w) for w in line] for line in words],
-        },
-    )
+    record: dict[str, Any] = {**made_from, "voice_share": round(share, 3)}
+    if said is not None:
+        record["strong_words"] = {"in_lyrics": in_lyrics, "heard": strong_words(said)}
+    record["lines"] = [None if line is None else [list(w) for w in line] for line in words]
+    store.write_json(store.words_json(track_id), record)
+
+    detail = ""
+    if not status.audio.pinned:
+        if share < assets.NO_VOICE_SHARE:
+            detail = "no singing heard; sync will look for another version"
+        elif assets.is_clean_edit(store, track_id):
+            detail = "sounds like a clean edit; sync will look for the explicit version"
     return AlignReport(
         track_id,
         "aligned",
-        "no singing heard; sync will look for another version"
-        if share < assets.NO_VOICE_SHARE and not status.audio.pinned
-        else "",
+        detail,
         lines=sum(1 for line in spelled if line),
         placed=sum(1 for line in words if line),
     )
@@ -111,6 +126,7 @@ def align_tracks(
     name: str,
     *,
     force: bool = False,
+    listen_for_clean_edits: bool = True,
     on_report: Callable[[AlignReport], None] = lambda report: None,
 ) -> list[AlignReport]:
     """Align each track once (a playlist may repeat one). ``engine`` is built on first use,
@@ -124,7 +140,9 @@ def align_tracks(
 
     reports = []
     for track_id in dict.fromkeys(track_ids):
-        report = align_track(store, track_id, get, name, force=force)
+        report = align_track(
+            store, track_id, get, name, force=force, listen_for_clean_edits=listen_for_clean_edits
+        )
         reports.append(report)
         on_report(report)
     return reports

@@ -11,6 +11,8 @@ inside a window.
   it was not sure of. Such a line keeps the estimate of ``lyrics/words.py``.
 * :func:`voice_share` says how much of the track has a voice in it at all, which tells a
   karaoke or instrumental upload from the song.
+* :func:`strong_words` counts the words a clean edit mutes, which, against what a speech
+  recognizer hears of the voice, tells a clean edit from the explicit recording.
 
 Times are counted in the model's frames (``FRAME_MS`` each) until :func:`settle`, and in
 milliseconds of the audio file after it.
@@ -48,6 +50,16 @@ AUDIBLE_VOICE = 0.1
 ANY = "*"
 
 _UNKNOWN = re.compile(r"[^a-z']")
+
+# Words every clean edit removes, also as a lyric site or a recognizer may write them
+# ("f**k", "sh*t", "n***a"). Milder ones ("damn", "ass", "hell") are left out: some clean
+# edits keep them, and "ass" hides in too many other words.
+_STRONG = re.compile(
+    r"\b(?:(?:mother)?f[u*][c*]?[k*]|sh[i*]t|b[i*]tch|n[i*][g*][g*]?a|pussy)[\w*]*"
+)
+# Lyrics with fewer strong words than this say too little about a clean edit: one word
+# missed by the recognizer would decide it.
+MIN_STRONG_WORDS = 3
 
 
 def spell(word: str) -> str:
@@ -131,6 +143,11 @@ def settle(
             tuple((a * FRAME_MS, max(a, b) * FRAME_MS) for a, b in zip(starts, ends, strict=True))
         )
     return settled
+
+
+def strong_words(text: str) -> int:
+    """How many of the words a clean edit removes ``text`` has."""
+    return len(_STRONG.findall(text.lower()))
 
 
 def voice_share(loudness: Sequence[float]) -> float:

@@ -10,6 +10,10 @@ without them. Two models do the work:
   likely each letter is. One pass over the track; each line is then placed inside its
   own window of those frames by the standard CTC alignment.
 
+A third model is loaded only for a track that asks for it: Whisper (``large-v3-turbo``,
+through ``transformers``) writes down what the separated voice says, so that ``run`` can
+count the strong words that were really sung (see :func:`~.plan.strong_words`).
+
 Audio is decoded by ffmpeg, which the audio stage already depends on.
 """
 
@@ -27,6 +31,7 @@ NAME = "mms_fa+htdemucs"
 _SEPARATION_RATE = 44_100
 _MODEL_RATE = 16_000
 _CHUNK_S = 30
+_RECOGNIZER = "openai/whisper-large-v3-turbo"
 
 
 class TorchEngine:
@@ -48,6 +53,7 @@ class TorchEngine:
         self._apply_model = apply_model
         self._ffmpeg = ffmpeg
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._recognizer: Any = None
         bundle = torchaudio.pipelines.MMS_FA
         self._letters: dict[str, int] = bundle.get_dict(star=ANY)
         self._acoustic = bundle.get_model(with_star=True).to(self.device).eval()
@@ -94,6 +100,31 @@ class TorchEngine:
                 heard.append(self._acoustic(piece.to(self.device))[0][0].cpu())
         return torch.cat(heard) if heard else torch.empty(0, len(self._letters))
 
+    def _transcribe(self, voice: Any) -> str:
+        """What the voice says, as Whisper writes it down."""
+        if self._recognizer is None:
+            try:
+                from transformers import pipeline
+            except ImportError as exc:
+                raise PlaylistPlayerError(
+                    "listening for a clean edit needs transformers; install it with: "
+                    ".venv/bin/pip install -r requirements-align.txt"
+                ) from exc
+            on_gpu = self.device != "cpu"
+            self._recognizer = pipeline(
+                "automatic-speech-recognition",
+                model=_RECOGNIZER,
+                dtype=self._torch.float16 if on_gpu else self._torch.float32,
+                device=self.device,
+            )
+        heard = self._recognizer(
+            {"raw": voice[0].cpu().numpy(), "sampling_rate": _MODEL_RATE},
+            chunk_length_s=_CHUNK_S,
+            batch_size=8,
+            generate_kwargs={"language": "en", "task": "transcribe"},
+        )
+        return heard["text"]
+
     def _loudness(self, voice: Any, frames: int) -> list[float]:
         """The voice's level (RMS) in each of the model's frames."""
         size = _MODEL_RATE * FRAME_MS // 1000
@@ -108,15 +139,19 @@ class TorchEngine:
         audio: Path,
         spelled: Sequence[Sequence[str]],
         windows_for: Any,
-    ) -> tuple[list[list[WordSpan] | None], list[float]]:
-        """Where each line's words are, and the voice's level in every frame.
+        *,
+        transcribe: bool = False,
+    ) -> tuple[list[list[WordSpan] | None], list[float], str | None]:
+        """Where each line's words are, the voice's level in every frame, and its words.
 
         ``spelled`` is each line's words as :func:`~.plan.spell` gives them, and
-        ``windows_for(frames)`` each line's window once the track's length is known.
+        ``windows_for(frames)`` each line's window once the track's length is known. The
+        words the voice says are written down only with ``transcribe``, else ``None``.
         """
         try:
             voice = self._voice(audio)
             heard = self._hear(voice)
+            said = self._transcribe(voice) if transcribe else None
         except self._torch.OutOfMemoryError as exc:
             # One track too many for the memory free right now must not end the run.
             self._torch.cuda.empty_cache()
@@ -126,7 +161,7 @@ class TorchEngine:
             self._place(heard, words, window) if words and window else None
             for words, window in zip(spelled, windows_for(frames), strict=True)
         ]
-        return found, self._loudness(voice, frames)
+        return found, self._loudness(voice, frames), said
 
     def _place(
         self, heard: Any, words: Sequence[str], window: tuple[int, int]

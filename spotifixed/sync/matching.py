@@ -89,6 +89,7 @@ _ARTIST_POINTS = 15.0  # an artist's name appears in the title or the channel
 _ALBUM_AUDIO_POINTS = 25.0  # uploaded as the album recording
 _AUDIO_LABEL_POINTS = 5.0  # titled "(Audio)": the recording without a video's extras
 _OTHER_VERSION = -60.0  # labelled live, remix, cover, ... when the track is not
+_EXPLICIT_LABEL_POINTS = 10.0  # titled "(Explicit)" for an explicit track
 AUDIO_REVIEW_THRESHOLD = 60.0
 
 # Labels that mean "not the album recording". Each is ignored when the track's own
@@ -107,6 +108,10 @@ _CREDIT_PHRASES = (
 # Words that mark a whole channel as another version's. Narrower than the title's list:
 # a channel called "Live Nation" or "Acoustic Records" publishes the real thing too.
 _OTHER_VERSION_CHANNEL_WORDS = ("karaoke", "instrumental", "instrumentals", "backing tracks")
+# For an explicit track, labels that mean the words were cleaned up, and labels that
+# promise they were not. Ignored when an artist's name carries them ("Clean Bandit").
+_CLEAN_WORDS = ("clean", "edited", "censored", "radio edit")
+_EXPLICIT_WORDS = ("explicit", "dirty", "uncensored")
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,11 +158,15 @@ def _before_credit(text: str) -> str:
     return text[:cut].strip()
 
 
-def _other_version_labels(title: str, channel: str, track_title: str) -> list[str]:
+def _other_version_labels(
+    title: str, channel: str, track_title: str, artists: str, explicit: bool
+) -> list[str]:
     """What marks a candidate as not the album recording, ignoring what the track carries."""
     labels = [w for w in _OTHER_VERSION_WORDS + _CREDIT_PHRASES if _has_phrase(title, w)]
     labels += [w for w in _CREDIT_PHRASES if _has_phrase(channel, w)]
     labels += [w for w in _OTHER_VERSION_CHANNEL_WORDS if _has_phrase(channel, w)]
+    if explicit:
+        labels += [w for w in _CLEAN_WORDS if _has_phrase(title, w) and not _has_phrase(artists, w)]
     return [w for w in dict.fromkeys(labels) if not _has_phrase(track_title, w)]
 
 
@@ -169,13 +178,22 @@ def is_album_audio(candidate: AudioCandidate) -> bool:
 
 
 def score_audio(
-    track: Track, candidate: AudioCandidate, *, tolerance_s: float, reject_s: float
+    track: Track,
+    candidate: AudioCandidate,
+    *,
+    tolerance_s: float,
+    reject_s: float,
+    explicit: bool | None = None,
 ) -> ScoredCandidate | None:
     """Score one candidate, or ``None`` when it is rejected outright.
 
     Rejected: no duration, or further from the track's length than ``reject_s``. A
     recording that far off is a different edit, and its lyrics would never line up.
+
+    ``explicit`` (by default the track's own flag) says the explicit recording is wanted:
+    a clean edit is then another version, and a title promising the explicit one scores.
     """
+    explicit = track.explicit if explicit is None else explicit
     if candidate.duration_s is None:
         return None
     delta = candidate.duration_s - track.duration_s
@@ -220,7 +238,11 @@ def score_audio(
         score += _AUDIO_LABEL_POINTS
         reasons.append("audio upload")
 
-    labels = _other_version_labels(title, channel, track_title)
+    artists = " ".join(map(_fold, track.artists))
+    labels = _other_version_labels(title, channel, track_title, artists, explicit)
+    if explicit and any(_has_phrase(title, w) for w in _EXPLICIT_WORDS):
+        score += _EXPLICIT_LABEL_POINTS
+        reasons.append("labelled explicit")
     if labels:
         score += _OTHER_VERSION
         reasons.append("labelled " + ", ".join(labels))
@@ -229,9 +251,14 @@ def score_audio(
 
 
 def rank_audio(
-    track: Track, candidates: Iterable[AudioCandidate], *, tolerance_s: float, reject_s: float
+    track: Track,
+    candidates: Iterable[AudioCandidate],
+    *,
+    tolerance_s: float,
+    reject_s: float,
+    explicit: bool | None = None,
 ) -> list[ScoredCandidate]:
-    """Every candidate that survives rejection, best first.
+    """Every candidate that survives rejection, best first (``explicit``: see score_audio).
 
     Equal scores go to the one closer to the track's length, then to search order.
     """
@@ -241,7 +268,9 @@ def rank_audio(
         if candidate.id in seen:
             continue
         seen.add(candidate.id)
-        result = score_audio(track, candidate, tolerance_s=tolerance_s, reject_s=reject_s)
+        result = score_audio(
+            track, candidate, tolerance_s=tolerance_s, reject_s=reject_s, explicit=explicit
+        )
         if result is not None:
             scored.append(result)
     scored.sort(key=lambda item: (-item.score, abs(item.duration_delta_s)))  # stable

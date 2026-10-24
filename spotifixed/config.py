@@ -51,6 +51,7 @@ class Settings:
     lrclib_base_url: str
     audio_duration_tolerance_s: float
     audio_duration_reject_s: float
+    audio_prefer_explicit: bool
     lyrics_duration_tolerance_s: float
     sync_workers: int
     miss_retry_days: int

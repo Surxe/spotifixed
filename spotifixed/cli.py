@@ -93,6 +93,7 @@ def _cmd_sync(args: argparse.Namespace, settings: Settings) -> int:
             YtDlpSource(),
             tolerance_s=settings.audio_duration_tolerance_s,
             reject_s=settings.audio_duration_reject_s,
+            prefer_explicit=settings.audio_prefer_explicit,
         ),
         "lyrics": lambda: LyricsStage(
             store,
@@ -189,7 +190,15 @@ def _cmd_align(args: argparse.Namespace, settings: Settings) -> int:
         elif report.outcome == "failed":
             print(f"  {report.track_id}  FAILED: {report.detail}", file=sys.stderr, flush=True)
 
-    reports = align_tracks(store, track_ids, TorchEngine, NAME, force=args.force, on_report=said)
+    reports = align_tracks(
+        store,
+        track_ids,
+        TorchEngine,
+        NAME,
+        force=args.force,
+        listen_for_clean_edits=settings.audio_prefer_explicit,
+        on_report=said,
+    )
     print(summary(reports))
     return 1 if any(report.outcome == "failed" for report in reports) else 0
 

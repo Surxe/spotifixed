@@ -198,6 +198,7 @@ def test_audio_with_no_singing_is_replaced_by_the_next_best_version(store, tones
     assert assets.read_audio(store, TRACK.id).source_id == "video"
     (rejected,) = assets.rejected_audio(store, TRACK.id)
     assert (rejected["source_id"], rejected["voice_share"]) == ("karaoke", 0.02)
+    assert rejected["reason"] == "no singing"
     assert stage.is_done(TRACK)  # the new audio has not been listened to yet
 
 
@@ -242,6 +243,56 @@ def test_only_so_many_versions_without_singing_are_tried(store, tones):
             heard(store, 0.0)
     assert [e["source_id"] for e in assets.rejected_audio(store, TRACK.id)] == ["v1", "v2", "v3"]
     assert assets.read_audio(store, TRACK.id).source_id == "v4"
+    assert stage.is_done(TRACK)
+
+
+def heard_strong_words(store, heard: int, in_lyrics: int = 10) -> None:
+    """What ``align`` leaves for sung audio in which ``heard`` strong words were heard."""
+    store.write_json(
+        store.words_json(TRACK.id),
+        {"voice_share": 0.6, "strong_words": {"in_lyrics": in_lyrics, "heard": heard}},
+    )
+
+
+def test_a_clean_edit_is_replaced_with_help_from_a_search_for_the_explicit_version(store, tones):
+    found = [[candidate("clean", 5, channel=TOPIC)]]
+    stage_for(store, FakeAudioSource(tones, found)).run(TRACK)
+    heard_strong_words(store, 1)
+    assert not stage_for(store, FakeAudioSource(tones, [])).is_done(TRACK)
+
+    explicit = candidate("explicit", 5, title="Made Up Artist 0 - Invented Song 0 (Explicit)")
+    source = FakeAudioSource(tones, [found[0], [explicit]])  # the Topic search is not needed
+    result = stage_for(store, source).run(TRACK)
+
+    assert result.outcome is Outcome.DONE
+    assert source.searches[-1] == "Made Up Artist 0 A Guest Invented Song 0 explicit"
+    assert assets.read_audio(store, TRACK.id).source_id == "explicit"
+    (rejected,) = assets.rejected_audio(store, TRACK.id)
+    assert rejected["reason"] == "clean edit" and rejected["strong_words_heard"] == 0.1
+
+
+def test_audio_heard_saying_the_strong_words_is_kept(store, tones):
+    stage = stage_for(store, FakeAudioSource(tones, [[candidate("album", 5, channel=TOPIC)]]))
+    stage.run(TRACK)
+    heard_strong_words(store, 7)
+    assert stage.is_done(TRACK)
+
+
+def test_a_clean_edit_is_kept_when_the_explicit_version_is_not_wanted(store, tones):
+    found = [[candidate("clean", 5, channel=TOPIC), candidate("other", 5)]]
+    stage = AudioStage(
+        store, FakeAudioSource(tones, found), tolerance_s=3.0, reject_s=7.0, prefer_explicit=False
+    )
+    stage.run(TRACK)
+    heard_strong_words(store, 0)
+    assert stage.is_done(TRACK)
+
+
+def test_a_pinned_clean_edit_is_kept(store, tones):
+    assets.write_track_state(store, TRACK.id, TrackState(audio_pin="https://video.invalid/c"))
+    stage = stage_for(store, FakeAudioSource(tones, []))
+    stage.run(TRACK)
+    heard_strong_words(store, 0)
     assert stage.is_done(TRACK)
 
 

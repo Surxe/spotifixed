@@ -169,20 +169,59 @@ def voice_share(store: CacheStore, track_id: str) -> float | None:
     return float(share)
 
 
+# Audio in which fewer than this share of the lyrics' strong words are heard is a clean
+# edit. Measured over a 500-track playlist: clean edits come out under 0.2, nearly always
+# at 0; explicit recordings at 0.6 and over. Between the two sit edits that mute some
+# words and not others.
+CLEAN_EDIT_SHARE = 0.55
+
+
+def strong_words_heard(store: CacheStore, track_id: str) -> float | None:
+    """The share of the lyrics' strong words heard in the audio, or ``None`` if not counted.
+
+    ``align`` counts them only for lyrics with enough of them to judge by. Like
+    :func:`voice_share`, this is always about the audio file that is there now.
+    """
+    data = store.read_json(store.words_json(track_id), default=None)
+    counts = data.get("strong_words") if isinstance(data, dict) else None
+    if not isinstance(counts, dict):
+        return None
+    in_lyrics, heard = counts.get("in_lyrics"), counts.get("heard")
+    if not all(isinstance(n, int) and not isinstance(n, bool) for n in (in_lyrics, heard)):
+        return None
+    return heard / in_lyrics if in_lyrics > 0 else None
+
+
+def is_clean_edit(store: CacheStore, track_id: str) -> bool:
+    """Whether ``align`` heard the track's audio leave out the lyrics' strong words."""
+    share = strong_words_heard(store, track_id)
+    return share is not None and share < CLEAN_EDIT_SHARE
+
+
 def rejected_audio(store: CacheStore, track_id: str) -> list[dict]:
-    """Audio once downloaded for the track and found to have no singing, oldest first."""
+    """Audio once downloaded for the track and found unfit, oldest first.
+
+    Each entry says why in ``reason``: ``no singing`` or ``clean edit`` (an entry written
+    before there were reasons has none, and was for no singing).
+    """
     data = store.read_json(store.rejected_audio_json(track_id), default=None)
     return [entry for entry in data if isinstance(entry, dict)] if isinstance(data, list) else []
 
 
-def reject_audio(store: CacheStore, track_id: str, asset: AudioAsset, share: float) -> None:
-    """Record that ``asset`` has no singing, so the audio stage looks for another version."""
+def reject_audio(
+    store: CacheStore, track_id: str, asset: AudioAsset, reason: str, measured: dict[str, float]
+) -> None:
+    """Record that ``asset`` is unfit, so the audio stage looks for another version.
+
+    ``measured`` is what the decision rested on, kept for whoever reads the file.
+    """
     entry = {
         "source_id": asset.source_id,
         "url": asset.url,
         "title": asset.title,
         "channel": asset.channel,
-        "voice_share": round(share, 3),
+        "reason": reason,
+        **{key: round(value, 3) for key, value in measured.items()},
     }
     store.write_json(store.rejected_audio_json(track_id), [*rejected_audio(store, track_id), entry])
 

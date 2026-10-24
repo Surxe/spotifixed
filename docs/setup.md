@@ -9,7 +9,7 @@ front page is the [README](../README.md).
 | Command | What it does | Needs |
 |---------|--------------|-------|
 | `sync` | Fetches track list, audio, lyrics and cover art into the cache | network, yt-dlp, ffmpeg |
-| `align` | Optional: times each word of the synced lyrics against the audio | PyTorch and Demucs (`requirements-align.txt`), ffmpeg; a GPU, in practice |
+| `align` | Optional: times each word of the synced lyrics against the audio, and hears clean edits | PyTorch, Demucs and Whisper (`requirements-align.txt`), ffmpeg; a GPU, in practice |
 | `status` | Shows what is cached for a playlist | |
 | `pin` | Chooses the audio for a track by hand | |
 | `serve` | The daemon: owns mpv, publishes playback state, serves the remote-control page | mpv |
@@ -101,6 +101,15 @@ the best candidate not yet tried; what was rejected is listed in the track's
 `rejected_audio.json`. After three such versions, or when no other version is left, the
 audio it has is kept. A pinned track's audio is never replaced this way.
 
+Clean edits are replaced the same way. A clean edit is usually labelled as nothing at
+all, often on the artist's own channel, so `align` listens for it (see Word timing), and
+the next `sync` turns down audio in which too few of the lyrics' strong words were heard
+(`reason` "clean edit" in `rejected_audio.json`). For such a track it also searches for
+the song with "explicit" added. For a track Spotify marks explicit, a candidate titled
+"clean", "edited", "censored" or "radio edit" counts as another version from the first
+search on, and one titled "explicit", "dirty" or "uncensored" gains a little.
+`SPOTIFIXED_AUDIO_PREFER_EXPLICIT=false` keeps clean edits.
+
 A track whose audio search finds nothing trustworthy is flagged `review` in `status`,
 with its best candidates listed in `cache/misses.json`. Choose one by hand, then sync
 that track again:
@@ -146,6 +155,16 @@ It also records the share of the track in which a voice is heard (`voice_share` 
 `words.json`). Under 0.15 the audio is taken to have no singing, a karaoke backing or an
 instrumental under the song's name, and `align` prints "no singing heard"; see Syncing a
 playlist for what `sync` does about it. Songs with vocals measure about 0.4 and up.
+
+For lyrics with at least three strong words ("fuck", "shit", "bitch" and the like, also
+as "f**k"), it has Whisper write down what the separated voice says and records how many
+of them it heard (`strong_words` in `words.json`). A clean edit mutes, reverses or
+replaces them, so it is heard saying almost none; the explicit recording, most of them.
+Under 0.55 of them the audio is taken to be a clean edit, and `align` prints "sounds like
+a clean edit"; see Syncing a playlist for what `sync` does about it. Measured over a
+500-track playlist: clean edits come out under 0.2, explicit recordings at 0.6 and over.
+This adds about ten seconds to such a track, and Whisper downloads about 1.6 GB on first
+use. `SPOTIFIXED_AUDIO_PREFER_EXPLICIT=false` leaves it out.
 
 ## Where things are kept
 
@@ -218,6 +237,10 @@ deliberately not registered, so a token cannot end up on a command line.
 * **SPOTIFIXED_AUDIO_DURATION_REJECT_S** - An audio candidate further than this from Spotify's duration is rejected.
   - Default: `"7.0"`
   - Command line: `--audio-duration-reject-s`
+
+* **SPOTIFIXED_AUDIO_PREFER_EXPLICIT** - Want the explicit recording of a song, not its clean edit. align listens for the lyrics' strong words (with Whisper, from requirements-align.txt), and sync replaces audio in which they were not heard. Off: clean edits are kept, and align does not load Whisper.
+  - Default: `"true"`
+  - Command line: `--audio-prefer-explicit`
 
 * **SPOTIFIXED_LYRICS_DURATION_TOLERANCE_S** - A lyrics record further than this from the audio's real duration is still kept, but flagged as low timing confidence.
   - Default: `"2.0"`
