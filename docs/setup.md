@@ -107,7 +107,9 @@ the next `sync` turns down audio in which too few of the lyrics' strong words we
 (`reason` "clean edit" in `rejected_audio.json`). For such a track it also searches for
 the song with "explicit" added. For a track Spotify marks explicit, a candidate titled
 "clean", "edited", "censored" or "radio edit" counts as another version from the first
-search on, and one titled "explicit", "dirty" or "uncensored" gains a little.
+search on, and one titled "explicit", "dirty" or "uncensored" gains a little. Audio heard
+saying no fewer of the words than a version already turned down is kept: in such a song
+the words are hard to hear (few of them, or a voice the recognizer misses), not cut.
 `SPOTIFIXED_AUDIO_PREFER_EXPLICIT=false` keeps clean edits.
 
 A track whose audio search finds nothing trustworthy is flagged `review` in `status`,

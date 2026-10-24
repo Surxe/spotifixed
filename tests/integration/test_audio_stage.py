@@ -271,6 +271,20 @@ def test_a_clean_edit_is_replaced_with_help_from_a_search_for_the_explicit_versi
     assert rejected["reason"] == "clean edit" and rejected["strong_words_heard"] == 0.1
 
 
+def test_a_replacement_heard_no_better_than_the_clean_edit_it_replaced_is_kept(store, tones):
+    found = [[candidate("first", 5, channel=TOPIC), candidate("second", 5), candidate("third", 5)]]
+    stage = stage_for(store, FakeAudioSource(tones, found))
+    stage.run(TRACK)
+    heard_strong_words(store, 2, in_lyrics=7)
+    stage.run(TRACK)
+    assert assets.read_audio(store, TRACK.id).source_id == "second"
+
+    heard_strong_words(store, 2, in_lyrics=7)  # as hard to hear in this version (2/7, rounded)
+    assert stage.is_done(TRACK)
+    heard_strong_words(store, 1)  # but a version heard saying fewer is still a clean edit
+    assert not stage.is_done(TRACK)
+
+
 def test_audio_heard_saying_the_strong_words_is_kept(store, tones):
     stage = stage_for(store, FakeAudioSource(tones, [[candidate("album", 5, channel=TOPIC)]]))
     stage.run(TRACK)

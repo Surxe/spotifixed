@@ -95,6 +95,14 @@ class AudioStage:
         rejected = assets.rejected_audio(self._store, track_id)
         if asset.source_id in {entry.get("source_id") for entry in rejected}:
             return None  # already looked for another version, and kept this one
+        if found[0] == _CLEAN_EDIT and any(
+            entry.get("reason") == _CLEAN_EDIT
+            and entry.get("strong_words_heard", float("inf")) <= round(heard, 3)  # as stored
+            for entry in rejected
+        ):
+            # No better heard than a version already turned down: the words are hard to
+            # hear in this song (few of them, or a voice the recognizer misses), not cut.
+            return None
         return found if len(rejected) < _MAX_REJECTED else None
 
     def run(self, track: Track) -> StageResult:
