@@ -226,3 +226,40 @@ def test_only_karaoke_words_mark_a_channel_and_a_credit_in_the_track_title_is_no
 def test_backing_track_labels_drop_a_candidate(label):
     result = score(candidate("x", 200, title=f"Made Up Artist 0 - Invented Song 0 ({label})"))
     assert result.score == 85 - 60 and f"labelled {label.lower()}" in result.reasons
+
+
+# ------------------------------ explicit tracks ----------------------------- #
+
+EXPLICIT = Track(
+    id="T2",
+    title="Invented Song 0",
+    artists=("Made Up Artist 0",),
+    duration_ms=200_000,
+    explicit=True,
+)
+
+
+@pytest.mark.parametrize("label", ["Clean", "Clean Version", "Edited", "Radio Edit", "Censored"])
+def test_for_an_explicit_track_a_clean_edit_is_another_version(label):
+    cleaned = candidate("c", 200, title=f"Invented Song 0 ({label})")
+    assert not score(cleaned, EXPLICIT).acceptable
+    assert score(cleaned, TRACK).score == score(candidate("p", 200, title="Invented Song 0")).score
+
+
+def test_for_an_explicit_track_a_title_promising_the_explicit_version_scores():
+    plain = score(candidate("p", 200, title="Invented Song 0"), EXPLICIT)
+    for label in ("Explicit", "Dirty", "Uncensored"):
+        promised = score(candidate("e", 200, title=f"Invented Song 0 [{label}]"), EXPLICIT)
+        assert promised.score > plain.score and "labelled explicit" in promised.reasons
+    # Not for a track that is not explicit, and not when the explicit one is not wanted.
+    promise = candidate("e", 200, title="Invented Song 0 (feat. A Guest) [Explicit]")
+    assert score(promise).score == score(candidate("p", 200, title="Invented Song 0")).score
+    wanted = score_audio(EXPLICIT, candidate("c", 200, title="Invented Song 0 (Clean)"),
+                         explicit=False, **BOUNDS)  # fmt: skip
+    assert wanted.acceptable
+
+
+def test_a_clean_label_in_an_artists_name_is_not_a_clean_edit():
+    band = Track(id="T3", title="Invented Song 0", artists=("Clean Bandit",), duration_ms=200_000,
+                 explicit=True)  # fmt: skip
+    assert score(candidate("b", 200, title="Clean Bandit - Invented Song 0"), band).acceptable

@@ -124,6 +124,19 @@ OPTIONS_SCHEMA = {
         "section": _SYNC,
         "help": "An audio candidate further than this from Spotify's duration is rejected.",
     },
+    "AUDIO_PREFER_EXPLICIT": {
+        "env": "SPOTIFIXED_AUDIO_PREFER_EXPLICIT",
+        "arg": "--audio-prefer-explicit",
+        "type": bool,
+        "default": True,
+        "section": _SYNC,
+        "help": (
+            "Want the explicit recording of a song, not its clean edit. align listens for "
+            "the lyrics' strong words (with Whisper, from requirements-align.txt), and sync "
+            "replaces audio in which they were not heard. Off: clean edits are kept, and "
+            "align does not load Whisper."
+        ),
+    },
     "LYRICS_DURATION_TOLERANCE_S": {
         "env": "SPOTIFIXED_LYRICS_DURATION_TOLERANCE_S",
         "arg": "--lyrics-duration-tolerance-s",

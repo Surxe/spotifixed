@@ -9,7 +9,7 @@ import pytest
 
 from spotifixed.align import MIN_CONFIDENCE, WordSpan, align_tracks, settle, spell, summary
 from spotifixed.align import windows as line_windows
-from spotifixed.align.plan import AUDIBLE_VOICE, voice_share
+from spotifixed.align.plan import AUDIBLE_VOICE, strong_words, voice_share
 from spotifixed.cache import assets
 from spotifixed.errors import PlaylistPlayerError
 from spotifixed.lyrics import parse_lrc
@@ -81,12 +81,14 @@ class FakeEngine:
     name = "fake"
     built = 0
     level = 0.0  # the voice's level in every frame
+    said = ""  # what a recognizer writes down of the voice
+    transcribed = 0  # tracks it was asked to write down
 
     def __init__(self) -> None:
         type(self).built += 1
         self.heard: list[str] = []
 
-    def align(self, audio, spelled, windows_for):
+    def align(self, audio, spelled, windows_for, *, transcribe=False):
         if audio.read_bytes() == b"unreadable":
             raise PlaylistPlayerError("ffmpeg could not decode it")
         self.heard.append(audio.name)
@@ -99,12 +101,14 @@ class FakeEngine:
             found.append(
                 [WordSpan(start + 50 * k, start + 50 * k + 5, 0.9) for k in range(len(words))]
             )
-        return found, [self.level] * 1000
+        type(self).transcribed += transcribe
+        return found, [self.level] * 1000, self.said if transcribe else None
 
 
 @pytest.fixture
 def library(store):
-    FakeEngine.built = 0
+    FakeEngine.built = FakeEngine.transcribed = 0
+    FakeEngine.level, FakeEngine.said = 0.0, ""
     build_library(store)
     return store
 
@@ -198,3 +202,53 @@ def test_an_aligned_track_records_how_much_of_it_has_a_voice(library):
     (silent,) = run(library, [track_id(1)])
     assert assets.voice_share(library, track_id(1)) == 0.0
     assert silent.outcome == "aligned" and "no singing heard" in silent.detail
+
+
+# ------------------------------- clean edits -------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("text", "count"),
+    [("fuck this shit", 2), ("F**kin' perfect", 1), ("sh*t, b*tches, n***as", 3),
+     ("motherfucker", 1), ("damn, what the hell", 0), ("fun bits, a pushy nigerian", 0)],
+)  # fmt: skip
+def test_strong_words_are_counted_also_as_written_with_asterisks(text, count):
+    assert strong_words(text) == count
+
+
+STRONG = "[00:01.00] shit, fuck, bitch\n[00:02.50]\n[00:04.00] one more fuck\n"
+
+
+def with_strong_lyrics(store, tid):
+    FakeEngine.level = 1.0  # sung: the voice is up throughout
+    info = assets.read_lyrics_info(store, tid)
+    assets.write_lyrics(store, tid, info, STRONG)
+
+
+def test_lyrics_with_strong_words_are_listened_to_for_a_clean_edit(library):
+    with_strong_lyrics(library, track_id(0))
+    FakeEngine.said = "shit, mm, bitch, one more"
+    plain, cleaned = run(library, [track_id(1), track_id(0)])
+    assert FakeEngine.transcribed == 1  # lyrics with no strong words are not written down
+    assert "strong_words" not in library.read_json(library.words_json(track_id(1)))
+    assert assets.strong_words_heard(library, track_id(1)) is None
+
+    stored = library.read_json(library.words_json(track_id(0)))
+    assert stored["strong_words"] == {"in_lyrics": 4, "heard": 2}
+    assert assets.strong_words_heard(library, track_id(0)) == 0.5
+    assert assets.is_clean_edit(library, track_id(0))
+    assert "clean edit" in cleaned.detail and plain.detail == ""
+
+
+def test_audio_heard_saying_the_strong_words_is_not_a_clean_edit(library):
+    with_strong_lyrics(library, track_id(0))
+    FakeEngine.said = "Shit, f***, bitch, one more fuck"
+    (report,) = run(library, [track_id(0)])
+    assert not assets.is_clean_edit(library, track_id(0)) and report.detail == ""
+
+
+def test_with_clean_edits_wanted_the_recognizer_is_never_asked(library):
+    with_strong_lyrics(library, track_id(0))
+    run(library, [track_id(0)], listen_for_clean_edits=False)
+    assert FakeEngine.transcribed == 0
+    assert assets.strong_words_heard(library, track_id(0)) is None

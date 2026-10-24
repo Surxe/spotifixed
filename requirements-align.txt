@@ -3,7 +3,8 @@
 # `align` listens to each track to find when every word is sung (README: "Word timing").
 # It runs two neural models, so it wants a GPU; on a CPU it works, slowly. These packages
 # are several gigabytes installed, and the models download about 1.3 GB more on first use
-# (to ~/.cache/torch).
+# (to ~/.cache/torch). With SPOTIFIXED_AUDIO_PREFER_EXPLICIT on (the default), a third,
+# Whisper, listens for clean edits: about 1.6 GB more, to ~/.cache/huggingface.
 #
 # PyTorch picks its CUDA build by index. For a current NVIDIA card:
 #   .venv/bin/pip install -r requirements-align.txt --extra-index-url https://download.pytorch.org/whl/cu128
@@ -14,3 +15,4 @@ torch==2.11.*
 torchaudio==2.11.*
 demucs
 numpy
+transformers

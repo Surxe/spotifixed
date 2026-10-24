@@ -17,6 +17,11 @@ under a song's name, see ``assets.voice_share``) is not done: it is listed in
 it. Only so many are tried, since a song that is instrumental in every version would
 otherwise use up its candidates one run at a time. A pinned file is never replaced.
 
+A clean edit (``align`` heard it leave out the lyrics' strong words, see
+``assets.is_clean_edit``) is replaced the same way, unless ``prefer_explicit`` is off.
+Once a track has had a clean edit rejected, a third search asks for the explicit version
+by name, and candidates are ranked as for an explicit track (``rank_audio``).
+
 The downloaded stream is measured, then copied (never re-encoded) into a container that
 carries title and artist tags, and only then moved to its final name.
 """
@@ -37,8 +42,10 @@ _SEARCH_LIMIT = 10
 # How many acceptable candidates to try when a download fails (removed, region-locked).
 _MAX_DOWNLOAD_ATTEMPTS = 3
 _REVIEW_LISTING = 3
-# Versions of one track found to have no singing before the stage stops looking.
+# Versions of one track found unfit (no singing, a clean edit) before the stage stops looking.
 _MAX_REJECTED = 3
+_NO_SINGING = "no singing"
+_CLEAN_EDIT = "clean edit"
 
 
 class AudioStage:
@@ -51,11 +58,13 @@ class AudioStage:
         *,
         tolerance_s: float,
         reject_s: float,
+        prefer_explicit: bool = True,
     ) -> None:
         self._store = store
         self._source = source
         self._tolerance_s = tolerance_s
         self._reject_s = reject_s
+        self._prefer_explicit = prefer_explicit
 
     def is_done(self, track: Track) -> bool:
         asset = assets.read_audio(self._store, track.id)
@@ -65,17 +74,36 @@ class AudioStage:
         if pin is not None:
             # A pin added or changed after the download means the file on disk is the wrong one.
             return asset.pinned and asset.url == pin
-        return not self._voiceless(track.id, asset)
+        return self._unfit(track.id, asset) is None
 
-    def _voiceless(self, track_id: str, asset: AudioAsset) -> bool:
-        """Whether the audio has no singing and another version should still be looked for."""
+    def _unfit(self, track_id: str, asset: AudioAsset) -> tuple[str, dict[str, float]] | None:
+        """Why another version of the audio should still be looked for, or ``None``.
+
+        The reason comes with what it was measured as, for ``rejected_audio.json``.
+        """
+        if asset.pinned:
+            return None
+        found: tuple[str, dict[str, float]] | None = None
         share = assets.voice_share(self._store, track_id)
-        if asset.pinned or share is None or share >= assets.NO_VOICE_SHARE:
-            return False
+        heard = assets.strong_words_heard(self._store, track_id)
+        if share is not None and share < assets.NO_VOICE_SHARE:
+            found = (_NO_SINGING, {"voice_share": share})
+        elif self._prefer_explicit and heard is not None and heard < assets.CLEAN_EDIT_SHARE:
+            found = (_CLEAN_EDIT, {"strong_words_heard": heard})
+        if found is None:
+            return None
         rejected = assets.rejected_audio(self._store, track_id)
         if asset.source_id in {entry.get("source_id") for entry in rejected}:
-            return False  # already looked for another version, and kept this one
-        return len(rejected) < _MAX_REJECTED
+            return None  # already looked for another version, and kept this one
+        if found[0] == _CLEAN_EDIT and any(
+            entry.get("reason") == _CLEAN_EDIT
+            and entry.get("strong_words_heard", float("inf")) <= round(heard, 3)  # as stored
+            for entry in rejected
+        ):
+            # No better heard than a version already turned down: the words are hard to
+            # hear in this song (few of them, or a voice the recognizer misses), not cut.
+            return None
+        return found if len(rejected) < _MAX_REJECTED else None
 
     def run(self, track: Track) -> StageResult:
         pin = assets.read_track_state(self._store, track.id).audio_pin
@@ -84,14 +112,16 @@ class AudioStage:
             return StageResult.done(f"pinned, {asset.duration_s:.0f}s")
 
         current = assets.read_audio(self._store, track.id)
-        if current is not None and self._voiceless(track.id, current):
-            share = assets.voice_share(self._store, track.id) or 0.0
-            assets.reject_audio(self._store, track.id, current, share)
-        rejected = {
-            entry.get("source_id") for entry in assets.rejected_audio(self._store, track.id)
-        }
+        unfit = None if current is None else self._unfit(track.id, current)
+        if current is not None and unfit is not None:
+            assets.reject_audio(self._store, track.id, current, *unfit)
+        rejected = assets.rejected_audio(self._store, track.id)
+        cleaned = any(entry.get("reason") == _CLEAN_EDIT for entry in rejected)
+        skip = {entry.get("source_id") for entry in rejected}
 
-        ranked = [item for item in self._candidates(track) if item.candidate.id not in rejected]
+        ranked = [
+            item for item in self._candidates(track, cleaned) if item.candidate.id not in skip
+        ]
         acceptable = [item for item in ranked if item.acceptable]
         if not acceptable:
             listing = [item.summary() for item in ranked[:_REVIEW_LISTING]]
@@ -110,9 +140,20 @@ class AudioStage:
             return StageResult.done(f"{kind}, {asset.duration_s - track.duration_s:+.1f}s")
         raise SourceError("; ".join(errors))
 
-    def _candidates(self, track: Track) -> list[ScoredCandidate]:
+    def _candidates(self, track: Track, cleaned: bool) -> list[ScoredCandidate]:
+        """Search results, ranked; ``cleaned``: a clean edit of the track was turned down."""
+        # The explicit recording is wanted when the track is flagged explicit, or when one
+        # of its downloads was heard to be a clean edit; never with prefer_explicit off.
+        explicit = self._prefer_explicit and (cleaned or track.explicit)
+
         def rank(found):
-            return rank_audio(track, found, tolerance_s=self._tolerance_s, reject_s=self._reject_s)
+            return rank_audio(
+                track,
+                found,
+                tolerance_s=self._tolerance_s,
+                reject_s=self._reject_s,
+                explicit=explicit,
+            )
 
         found = self._source.search(f"{' '.join(track.artists)} {track.title}", _SEARCH_LIMIT)
         ranked = rank(found)
@@ -121,6 +162,12 @@ class AudioStage:
             # plain search often ranks below the music video.
             found += self._source.search(
                 f"{track.primary_artist} - Topic {track.title}", _SEARCH_LIMIT
+            )
+            ranked = rank(found)
+        if self._prefer_explicit and cleaned:
+            # A plain search tends to find the clean edit again, often on several channels.
+            found += self._source.search(
+                f"{' '.join(track.artists)} {track.title} explicit", _SEARCH_LIMIT
             )
             ranked = rank(found)
         return ranked
