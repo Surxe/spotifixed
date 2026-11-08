@@ -8,6 +8,7 @@ Commands:
 
 * ``sync``     fetch a playlist's tracklist, audio, lyrics and cover art into the cache
 * ``status``   show what is cached for a playlist
+* ``diff``     show what the last tracklist refresh changed
 * ``pin``      choose the audio for a track by hand
 * ``serve``    run the daemon: mpv, the HTTP API and the remote-control page
 * ``ctl``      send a transport command to a running daemon
@@ -79,6 +80,8 @@ def _cmd_sync(args: argparse.Namespace, settings: Settings) -> int:
         write=not args.dry_run,
     )
     print("\n".join(report.tracklist_summary(result)))
+    if result.changes is not None:
+        print("\n".join(_changes_lines(store, result.changes, result.carried)))
     warning = report.shortfall_warning(result)
     if warning:
         print(f"spotifixed: {warning}", file=sys.stderr)
@@ -134,6 +137,48 @@ def _cmd_sync(args: argparse.Namespace, settings: Settings) -> int:
     reports = pipeline.run(tracks)
     print("\n".join(report.sync_totals(reports, wanted)))
     return status
+
+
+def _changes_lines(store, changes, carried=()) -> list[str]:
+    from .cache import assets
+    from .sync import report
+
+    ids = [t.id for t in changes.removed] + [r.old.id for r in changes.relinked]
+    ids += [c.new.id for c in changes.changed]
+    states = {track_id: assets.read_track_state(store, track_id) for track_id in ids}
+    return report.changes_lines(changes, carried, states)
+
+
+def _cmd_diff(args: argparse.Namespace, settings: Settings) -> int:
+    from .cache import CacheStore
+    from .http import HttpClient
+    from .sources.tracklist import build_tracklist_source, playlist_id_from
+    from .sync.tracklist import last_changes
+
+    store = CacheStore(settings.cache_dir, settings.state_dir)
+    playlist_id = playlist_id_from(args.playlist)
+
+    def source_for(name: str):
+        # Parsing a saved response needs no token; one is only asked for to fetch.
+        return build_tracklist_source(
+            name,
+            http=HttpClient(),
+            apify_base_url=settings.apify_base_url,
+            apify_token=settings.require_apify_token,
+            apify_max_charge_usd=settings.apify_max_charge_usd,
+        )
+
+    found = last_changes(store, playlist_id, source_for, settings.tracklist_actor)
+    if found is None:
+        print(
+            f"Playlist {playlist_id}: no earlier tracklist is kept to compare with. "
+            "One is kept each time sync --refresh-tracklist replaces it."
+        )
+        return 0
+    stamp, changes = found
+    print(f"Playlist {playlist_id}: the cached tracklist against the one archived as {stamp}")
+    print("\n".join(_changes_lines(store, changes)))
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace, settings: Settings) -> int:
@@ -303,6 +348,9 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument(
         "playlist", nargs="?", help="playlist URL, URI or ID; omit to list cached playlists"
     )
+
+    diff = add("diff", "Show what the last tracklist refresh changed.", _cmd_diff)
+    diff.add_argument("playlist", help="playlist URL, spotify:playlist:ID URI, or bare ID")
 
     pin = add("pin", "Choose the audio for a track by hand.", _cmd_pin)
     pin.add_argument("track", help="track ID")

@@ -176,3 +176,58 @@ def test_summary_and_shortfall_warning(store):
     assert "from cache" in "\n".join(report.tracklist_summary(complete))
     store.write_bytes(store.tracklist_raw(PLAYLIST_ID), response(3))
     assert report.shortfall_warning(Harness(store, token=None).load()) is None
+
+
+def test_a_refresh_archives_the_old_tracklist_and_reports_changes(store):
+    first = Harness(store, (200, response(3)))
+    first.load()
+    old_fetched = store.read_json(store.tracklist_meta(PLAYLIST_ID))["fetched_at"]
+
+    result = Harness(store, (200, response(4))).load(refresh=True)
+
+    (stamp,) = store.tracklist_history_stamps(PLAYLIST_ID)
+    assert stamp == "".join(c for c in old_fetched if c.isalnum())
+    raw_path, meta_path = store.tracklist_history(PLAYLIST_ID, stamp)
+    assert len(json.loads(raw_path.read_bytes())[0]["tracks"]) == 3
+    assert store.read_json(meta_path)["actor"] == ACTOR
+    assert [t.id for t in result.changes.added] == ["TRK0003"]
+    assert not result.changes.removed
+
+
+def test_a_refresh_carries_settings_to_a_track_with_a_new_id(store):
+    from spotifixed.cache import assets
+    from spotifixed.models import TrackState
+    from tests.support.tracklists import playlist_row, track_item
+
+    Harness(store, (200, response(2))).load()
+    assets.write_track_state(store, "TRK0001", TrackState(offset_ms=300, disabled=True))
+    relinked = track_item(1, id="TRKNEW1", uri="spotify:track:TRKNEW1")
+    body = json.dumps([playlist_row([track_item(0), relinked])]).encode()
+
+    result = Harness(store, (200, body)).load(refresh=True)
+
+    (relink,) = result.changes.relinked
+    assert (relink.old.id, relink.new.id) == ("TRK0001", "TRKNEW1")
+    assert result.carried[0].state
+    assert assets.read_track_state(store, "TRKNEW1") == TrackState(offset_ms=300, disabled=True)
+    assert store.has(store.track_json("TRKNEW1"))
+
+
+def test_a_failed_refresh_archives_nothing(store):
+    Harness(store, (200, response(2))).load()
+    with pytest.raises(SourceError):
+        Harness(store, (402, b"{}")).load(refresh=True)
+    assert store.tracklist_history_stamps(PLAYLIST_ID) == []
+
+
+def test_last_changes_compares_the_cache_with_the_latest_archive(store):
+    from spotifixed.sync.tracklist import last_changes
+
+    harness = Harness(store, (200, response(2)))
+    assert last_changes(store, PLAYLIST_ID, harness.source_for, ACTOR) is None
+    harness.load()
+    Harness(store, (200, response(1))).load(refresh=True)
+
+    stamp, changes = last_changes(store, PLAYLIST_ID, Harness(store, token=None).source_for, ACTOR)
+    assert stamp in store.tracklist_history_stamps(PLAYLIST_ID)
+    assert [t.id for t in changes.removed] == ["TRK0001"]

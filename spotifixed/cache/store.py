@@ -8,6 +8,8 @@ Layout::
         tracklist.meta.json   which Actor produced it, and when
         playlist.json         normalized Playlist (metadata + ordered track ids)
         cover.jpg
+        history/<fetched_at>.raw.json, .meta.json
+                              a tracklist replaced by a refresh, kept for comparison
       tracks/<track_id>/
         track.json            normalized Track
         audio.<ext>           real file name is recorded in audio.json
@@ -109,6 +111,23 @@ class CacheStore:
 
     def playlist_cover(self, playlist_id: str) -> Path:
         return self.playlist_dir(playlist_id) / "cover.jpg"
+
+    def tracklist_history_dir(self, playlist_id: str) -> Path:
+        return self.playlist_dir(playlist_id) / "history"
+
+    def tracklist_history(self, playlist_id: str, stamp: str) -> tuple[Path, Path]:
+        """The archived raw response and meta file for one replaced tracklist."""
+        if not _FILE_NAME_RE.fullmatch(stamp):
+            raise CacheError(f"not a plain history stamp: {stamp!r}")
+        root = self.tracklist_history_dir(playlist_id)
+        return root / f"{stamp}.raw.json", root / f"{stamp}.meta.json"
+
+    def tracklist_history_stamps(self, playlist_id: str) -> list[str]:
+        """Stamps of the archived tracklists, oldest first."""
+        root = self.tracklist_history_dir(playlist_id)
+        if not root.is_dir():
+            return []
+        return sorted(p.name.removesuffix(".raw.json") for p in root.glob("*.raw.json"))
 
     def playlist_ids(self) -> list[str]:
         """IDs of playlists that have been normalized, sorted."""

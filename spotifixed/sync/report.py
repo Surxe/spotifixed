@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from ..cache import Miss
 from ..cache.assets import TrackStatus
-from ..models import LyricsKind, Playlist
+from ..models import LyricsKind, Playlist, Track, TrackState
+from .changes import CarriedOver, TracklistChanges
 from .pipeline import TrackReport
 from .stages import Outcome
 from .tracklist import TracklistResult
@@ -39,6 +40,75 @@ def shortfall_warning(result: TracklistResult) -> str | None:
         f"WARNING: the tracklist is incomplete: {playlist.shortfall} of "
         f"{playlist.reported_total} entries are missing from the source's response."
     )
+
+
+def _song(track: Track) -> str:
+    return f"{track.id}  {track.primary_artist} - {track.title}"
+
+
+def _state_note(state: TrackState | None) -> str:
+    if state is None:
+        return ""
+    bits = []
+    if state.disabled:
+        bits.append("turned off")
+    if state.offset_ms:
+        bits.append(f"offset {state.offset_ms:+d} ms")
+    if state.audio_pin:
+        bits.append("audio pinned")
+    if state.notes:
+        bits.append("notes")
+    return f"  [{', '.join(bits)}]" if bits else ""
+
+
+def changes_lines(
+    changes: TracklistChanges,
+    carried: Sequence[CarriedOver] = (),
+    states: Mapping[str, TrackState] | None = None,
+) -> list[str]:
+    """What a refresh changed. ``states`` holds hand-made settings, keyed by track ID."""
+    states = states or {}
+    lines = [
+        f"Changes since the previous tracklist: {changes.old_count} -> {changes.new_count} "
+        f"tracks; {len(changes.added)} added, {len(changes.removed)} removed, "
+        f"{len(changes.relinked)} under a new ID, {len(changes.changed)} with new details, "
+        f"{changes.moved} moved"
+    ]
+    if changes.empty:
+        lines[0] = "Changes since the previous tracklist: none"
+        return lines
+    by_relink = {item.relink.old.id: item for item in carried}
+    for title, rows in (
+        ("added", [_song(t) for t in changes.added]),
+        (
+            "removed (settings and files are kept)",
+            [_song(t) + _state_note(states.get(t.id)) for t in changes.removed],
+        ),
+        (
+            "under a new ID",
+            [
+                f"{r.old.id} -> {_song(r.new)}{_state_note(states.get(r.old.id))}"
+                + (
+                    f"  carried: {'settings, ' if by_relink[r.old.id].state else ''}"
+                    f"{by_relink[r.old.id].files} files"
+                    if r.old.id in by_relink
+                    else ""
+                )
+                for r in changes.relinked
+            ],
+        ),
+        (
+            "new details",
+            [
+                f"{_song(c.new)}: {', '.join(c.fields)}{_state_note(states.get(c.new.id))}"
+                for c in changes.changed
+            ],
+        ),
+    ):
+        if rows:
+            lines.append(f"  {title}:")
+            lines += [f"    {row}" for row in rows]
+    return lines
 
 
 def progress_line(index: int, total: int, report: TrackReport) -> str:
