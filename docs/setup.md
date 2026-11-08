@@ -63,6 +63,30 @@ under `cache/playlists/<id>/`, and every later `sync` works from that copy with 
 and no request; it is fetched again only with `sync --refresh-tracklist`. An exit status
 of 2 means the source returned fewer tracks than the playlist holds.
 
+### Refreshing a playlist
+
+When the playlist changes on Spotify, fetch its track list again without touching
+anything else, then sync what is new:
+
+```bash
+.venv/bin/python -m spotifixed sync <id> --refresh-tracklist --only tracklist
+.venv/bin/python -m spotifixed sync <id>                # audio, lyrics, covers for new tracks
+.venv/bin/python -m spotifixed diff <id>                # the changes again, any time later
+```
+
+The refresh keeps the track list it replaces under `cache/playlists/<id>/history/` and
+prints what changed: tracks added and removed, tracks Spotify now lists under a new ID,
+tracks whose title, artists, length, album or explicit flag changed, and how many moved.
+Removed tracks keep their files and settings; they only leave the playlist. Settings
+made on the page (turned off, lyric offset) and audio pins are listed beside each
+affected track.
+
+A track under a new ID is the same song: same title once release suffixes like
+"- Remastered" are dropped, same lead artist, and a length within three seconds. Its
+settings and cached files (audio, lyrics, word timing, cover) are copied to the new ID,
+so it keeps its offset and on/off setting and is not downloaded again. Nothing the new
+ID already has is overwritten.
+
 ## Syncing a playlist
 
 ```bash
